@@ -174,3 +174,64 @@ func TestNewHabit(t *testing.T) {
 		})
 	}
 }
+func TestHabit_Update(t *testing.T) {
+	createStandardHabit := func() *Habit {
+		h, _ := NewHabit("u1", "Original Title", "Original Desc", "#000000", "icon", "ml", 10, 0, nil)
+		time.Sleep(1 * time.Millisecond)
+		return h
+	}
+
+	t.Run("Success: Full Update", func(t *testing.T) {
+		habit := createStandardHabit()
+		originalTime := habit.UpdatedAt
+
+		err := habit.Update("New Title", "New Desc", "#FFFFFF", "new_icon", "kg", 20, 3, nil)
+
+		assert.Nil(t, err)
+		assert.Equal(t, "New Title", habit.Title)
+		assert.Equal(t, "New Desc", habit.Description)
+		assert.Equal(t, "#FFFFFF", habit.Color)
+		assert.Equal(t, "new_icon", habit.Icon)
+		assert.Equal(t, "kg", habit.Unit)
+		assert.Equal(t, 20, habit.TargetValue)
+		assert.Equal(t, 3, habit.Interval)
+		assert.Equal(t, "interval", habit.FrequencyType) // Logica ricalcolata
+		assert.Nil(t, habit.Weekdays)
+		assert.True(t, habit.UpdatedAt.After(originalTime)) // Timestamp aggiornato
+	})
+
+	t.Run("Success: Default Icon Logic", func(t *testing.T) {
+		habit := createStandardHabit()
+		err := habit.Update("Title", "Desc", "#FFF", "", "kg", 10, 1, nil)
+
+		assert.Nil(t, err)
+		assert.Equal(t, "default_icon", habit.Icon)
+	})
+
+	t.Run("Error: Validation Failure (Empty Title)", func(t *testing.T) {
+		habit := createStandardHabit()
+		previousTitle := habit.Title
+
+		err := habit.Update("", "Desc", "#FFF", "icon", "kg", 10, 1, nil)
+
+		assert.Equal(t, ErrHabitTitleEmpty, err)
+		assert.Equal(t, previousTitle, habit.Title)
+	})
+
+	t.Run("Error: Validation Failure (Invalid Color)", func(t *testing.T) {
+		habit := createStandardHabit()
+		err := habit.Update("Title", "Desc", "INVALID", "icon", "kg", 10, 1, nil)
+		assert.Equal(t, ErrInvalidColor, err)
+	})
+
+	t.Run("Error: Archived Habit Cannot Be Updated", func(t *testing.T) {
+		habit := createStandardHabit()
+
+		now := time.Now()
+		habit.ArchivedAt = &now
+
+		err := habit.Update("Try Update", "Desc", "#FFF", "icon", "kg", 10, 1, nil)
+
+		assert.Equal(t, ErrHabitArchived, err)
+	})
+}

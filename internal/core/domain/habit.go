@@ -16,6 +16,7 @@ var (
 	ErrInvalidWeekdays    = errors.New("invalid weekdays (must be 0-6)")
 	ErrInvalidTarget      = errors.New("target cannot be negative")
 	ErrInvalidInterval    = errors.New("interval cannot be negative")
+	ErrHabitArchived      = errors.New("cannot update an archived habit")
 )
 
 var colorRegex = regexp.MustCompile(`^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$`)
@@ -112,4 +113,34 @@ func NewHabit(userID, title, description, color, icon, unit string, target, inte
 		UpdatedAt:     now,
 		StartDate:     now,
 	}, nil
+}
+
+func (h *Habit) Update(title, description, color, icon, unit string, target, interval int, weekdays []int) error {
+
+	if h.ArchivedAt != nil {
+		return ErrHabitArchived
+	}
+
+	freqType, safeInterval, err := validateAndNormalize(title, color, target, interval, weekdays)
+	if err != nil {
+		return err
+	}
+
+	if icon == "" {
+		icon = "default_icon"
+	}
+
+	h.Title = strings.TrimSpace(title)
+	h.Description = description
+	h.Color = color
+	h.Icon = icon
+	h.Unit = unit
+	h.TargetValue = target
+	h.Weekdays = weekdays
+	h.Interval = safeInterval
+	h.FrequencyType = freqType
+
+	h.UpdatedAt = time.Now().UTC()
+
+	return nil
 }
