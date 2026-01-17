@@ -41,34 +41,27 @@ type Habit struct {
 	EndDate       *time.Time `json:"end_date,omitempty"`
 }
 
-func NewHabit(userID, title, description, color, icon, unit string, target, interval int, weekdays []int) (*Habit, error) {
+func validateAndNormalize(title, color string, target, interval int, weekdays []int) (string, int, error) {
 	if strings.TrimSpace(title) == "" {
-		return nil, ErrHabitTitleEmpty
-	}
-	if userID == "" {
-		return nil, ErrHabitInvalidUserID
+		return "", 0, ErrHabitTitleEmpty
 	}
 
 	if target < 0 {
-		return nil, ErrInvalidTarget
+		return "", 0, ErrInvalidTarget
 	}
 
 	if interval < 0 {
-		return nil, ErrInvalidInterval
+		return "", 0, ErrInvalidInterval
 	}
 
 	for _, day := range weekdays {
 		if day < 0 || day > 6 {
-			return nil, ErrInvalidWeekdays
+			return "", 0, ErrInvalidWeekdays
 		}
 	}
 
 	if color != "" && !colorRegex.MatchString(color) {
-		return nil, ErrInvalidColor
-	}
-
-	if icon == "" {
-		icon = "default_icon"
+		return "", 0, ErrInvalidColor
 	}
 
 	freqType := "daily"
@@ -78,8 +71,26 @@ func NewHabit(userID, title, description, color, icon, unit string, target, inte
 		freqType = "interval"
 	}
 
-	if interval < 1 {
-		interval = 1
+	safeInterval := interval
+	if safeInterval < 1 {
+		safeInterval = 1
+	}
+
+	return freqType, safeInterval, nil
+}
+
+func NewHabit(userID, title, description, color, icon, unit string, target, interval int, weekdays []int) (*Habit, error) {
+	if userID == "" {
+		return nil, ErrHabitInvalidUserID
+	}
+
+	freqType, safeInterval, err := validateAndNormalize(title, color, target, interval, weekdays)
+	if err != nil {
+		return nil, err
+	}
+
+	if icon == "" {
+		icon = "default_icon"
 	}
 
 	now := time.Now().UTC()
@@ -94,7 +105,7 @@ func NewHabit(userID, title, description, color, icon, unit string, target, inte
 		Unit:          unit,
 		TargetValue:   target,
 		Weekdays:      weekdays,
-		Interval:      interval,
+		Interval:      safeInterval,
 		FrequencyType: freqType,
 		SortOrder:     0,
 		CreatedAt:     now,
