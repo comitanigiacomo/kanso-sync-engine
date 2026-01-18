@@ -182,12 +182,12 @@ func (h *Habit) applyChanges(data *habitData, iconInput string) {
 	}
 }
 
-func NewHabit(userID, title, description, color, icon, hType, reminder, unit string, target, interval int, weekdays []int) (*Habit, error) {
+func NewHabit(title, userID string) (*Habit, error) {
 	if userID == "" {
 		return nil, ErrHabitInvalidUserID
 	}
 
-	data, err := prepareHabitData(title, description, color, hType, reminder, unit, target, interval, weekdays)
+	data, err := prepareHabitData(title, "", "", HabitTypeBoolean, "", "", 1, 1, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +203,7 @@ func NewHabit(userID, title, description, color, icon, hType, reminder, unit str
 		StartDate: now,
 	}
 
-	h.applyChanges(data, icon)
+	h.applyChanges(data, "")
 
 	return h, nil
 }
