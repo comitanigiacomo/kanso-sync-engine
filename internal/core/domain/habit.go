@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -24,7 +25,7 @@ var (
 )
 
 var colorRegex = regexp.MustCompile(`^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$`)
-var reminderRegex = regexp.MustCompile(`^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$`)
+var reminderRegex = regexp.MustCompile(`^([0-1][0-9]|2[0-3]):[0-5][0-9]$`)
 
 const (
 	HabitTypeBoolean      = "boolean"
@@ -59,6 +60,24 @@ type Habit struct {
 	EndDate       *time.Time `json:"end_date,omitempty"`
 }
 
+func normalizeWeekdays(days []int) []int {
+	if len(days) == 0 {
+		return nil
+	}
+
+	uniqueMap := make(map[int]bool)
+	var uniqueDays []int
+	for _, d := range days {
+		if !uniqueMap[d] {
+			uniqueMap[d] = true
+			uniqueDays = append(uniqueDays, d)
+		}
+	}
+
+	sort.Ints(uniqueDays)
+	return uniqueDays
+}
+
 func validateAndNormalize(title, desc, color, hType, reminder string, target, interval int, weekdays []int) (string, int, int, error) {
 	trimmedTitle := strings.TrimSpace(title)
 	if trimmedTitle == "" {
@@ -67,7 +86,8 @@ func validateAndNormalize(title, desc, color, hType, reminder string, target, in
 	if len(trimmedTitle) > MaxTitleLen {
 		return "", 0, 0, ErrHabitTitleTooLong
 	}
-	if len(desc) > MaxDescLen {
+
+	if len(strings.TrimSpace(desc)) > MaxDescLen {
 		return "", 0, 0, ErrHabitDescTooLong
 	}
 
@@ -122,7 +142,9 @@ func NewHabit(userID, title, description, color, icon, hType, reminder, unit str
 		return nil, ErrHabitInvalidUserID
 	}
 
-	freqType, safeInterval, safeTarget, err := validateAndNormalize(title, description, color, hType, reminder, target, interval, weekdays)
+	cleanDesc := strings.TrimSpace(description)
+
+	freqType, safeInterval, safeTarget, err := validateAndNormalize(title, cleanDesc, color, hType, reminder, target, interval, weekdays)
 	if err != nil {
 		return nil, err
 	}
@@ -138,17 +160,13 @@ func NewHabit(userID, title, description, color, icon, hType, reminder, unit str
 		remPtr = &reminder
 	}
 
-	var safeWeekdays []int
-	if len(weekdays) > 0 {
-		safeWeekdays = make([]int, len(weekdays))
-		copy(safeWeekdays, weekdays)
-	}
+	safeWeekdays := normalizeWeekdays(weekdays)
 
 	return &Habit{
 		ID:            uuid.New().String(),
 		UserID:        userID,
 		Title:         strings.TrimSpace(title),
-		Description:   description,
+		Description:   cleanDesc,
 		Color:         color,
 		Icon:          icon,
 		Type:          hType,
@@ -170,7 +188,9 @@ func (h *Habit) Update(title, description, color, icon, hType, reminder, unit st
 		return ErrHabitArchived
 	}
 
-	freqType, safeInterval, safeTarget, err := validateAndNormalize(title, description, color, hType, reminder, target, interval, weekdays)
+	cleanDesc := strings.TrimSpace(description)
+
+	freqType, safeInterval, safeTarget, err := validateAndNormalize(title, cleanDesc, color, hType, reminder, target, interval, weekdays)
 	if err != nil {
 		return err
 	}
@@ -186,14 +206,10 @@ func (h *Habit) Update(title, description, color, icon, hType, reminder, unit st
 		remPtr = nil
 	}
 
-	var safeWeekdays []int
-	if len(weekdays) > 0 {
-		safeWeekdays = make([]int, len(weekdays))
-		copy(safeWeekdays, weekdays)
-	}
+	safeWeekdays := normalizeWeekdays(weekdays)
 
 	h.Title = strings.TrimSpace(title)
-	h.Description = description
+	h.Description = cleanDesc
 	h.Color = color
 	h.Icon = icon
 	h.Type = hType

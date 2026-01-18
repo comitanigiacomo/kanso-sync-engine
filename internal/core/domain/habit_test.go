@@ -399,6 +399,7 @@ func TestHabit_Update(t *testing.T) {
 		assert.Equal(t, ErrHabitArchived, err)
 	})
 }
+
 func TestHabit_ArchiveAndRestore(t *testing.T) {
 	createActiveHabit := func() *Habit {
 		h, _ := NewHabit("u1", "Title", "", "#000", "", HabitTypeNumeric, "", "unit", 1, 0, nil)
@@ -505,7 +506,7 @@ func TestHabit_ChangePosition(t *testing.T) {
 	})
 }
 
-func TestHabit_DefensiveCopy(t *testing.T) {
+func TestHabit_DefensiveCopyAndHygiene(t *testing.T) {
 	t.Run("Safety: NewHabit isolates Weekdays slice", func(t *testing.T) {
 		inputWeekdays := []int{1, 2}
 
@@ -527,5 +528,13 @@ func TestHabit_DefensiveCopy(t *testing.T) {
 		inputWeekdays[0] = 5
 
 		assert.Equal(t, 3, habit.Weekdays[0])
+	})
+
+	t.Run("Hygiene: NewHabit normalizes (sorts & dedups) Weekdays", func(t *testing.T) {
+		inputWeekdays := []int{5, 1, 1, 3}
+
+		habit, _ := NewHabit("u1", "Sort", "", "#000", "", HabitTypeBoolean, "", "unit", 1, 0, inputWeekdays)
+
+		assert.Equal(t, []int{1, 3, 5}, habit.Weekdays, "I giorni devono essere ordinati e deduplicati")
 	})
 }
