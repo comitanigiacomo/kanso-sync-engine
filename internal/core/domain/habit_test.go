@@ -235,3 +235,80 @@ func TestHabit_Update(t *testing.T) {
 		assert.Equal(t, ErrHabitArchived, err)
 	})
 }
+
+func TestHabit_ArchiveAndRestore(t *testing.T) {
+	createActiveHabit := func() *Habit {
+		h, _ := NewHabit("u1", "Title", "", "#000", "", "unit", 1, 0, nil)
+		time.Sleep(1 * time.Millisecond)
+		return h
+	}
+
+	createArchivedHabit := func() *Habit {
+		h := createActiveHabit()
+		h.Archive()
+		time.Sleep(1 * time.Millisecond)
+		return h
+	}
+
+	t.Run("Archive: Soft Delete", func(t *testing.T) {
+		habit := createActiveHabit()
+		originalTime := habit.UpdatedAt
+		time.Sleep(1 * time.Millisecond)
+
+		habit.Archive()
+
+		assert.NotNil(t, habit.ArchivedAt)
+		assert.True(t, habit.UpdatedAt.After(originalTime))
+	})
+
+	t.Run("Archive: Idempotency", func(t *testing.T) {
+		habit := createArchivedHabit()
+		archivedAt := habit.ArchivedAt
+		updatedAt := habit.UpdatedAt
+		time.Sleep(1 * time.Millisecond)
+
+		habit.Archive()
+
+		assert.Equal(t, archivedAt, habit.ArchivedAt)
+		assert.Equal(t, updatedAt, habit.UpdatedAt)
+	})
+
+	t.Run("Security: Update Blocked when Archived", func(t *testing.T) {
+		habit := createArchivedHabit()
+
+		err := habit.Update("Change", "", "#000", "", "kg", 1, 0, nil)
+
+		assert.Equal(t, ErrHabitArchived, err)
+	})
+
+	t.Run("Restore: Bring back to life", func(t *testing.T) {
+		habit := createArchivedHabit()
+		beforeRestore := habit.UpdatedAt
+		time.Sleep(1 * time.Millisecond)
+
+		habit.Restore()
+
+		assert.Nil(t, habit.ArchivedAt)
+		assert.True(t, habit.UpdatedAt.After(beforeRestore))
+	})
+
+	t.Run("Restore: Idempotency", func(t *testing.T) {
+		habit := createActiveHabit()
+		originalTime := habit.UpdatedAt
+		time.Sleep(1 * time.Millisecond)
+
+		habit.Restore()
+
+		assert.Nil(t, habit.ArchivedAt)
+		assert.Equal(t, originalTime, habit.UpdatedAt)
+	})
+
+	t.Run("Security: Update Allowed after Restore", func(t *testing.T) {
+		habit := createArchivedHabit()
+		habit.Restore()
+
+		err := habit.Update("Change", "", "#000", "", "kg", 1, 0, nil)
+
+		assert.Nil(t, err)
+	})
+}

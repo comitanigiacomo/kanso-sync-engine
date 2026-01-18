@@ -144,3 +144,21 @@ func (h *Habit) Update(title, description, color, icon, unit string, target, int
 
 	return nil
 }
+
+func (h *Habit) Archive() {
+	if h.ArchivedAt != nil {
+		return
+	}
+
+	now := time.Now().UTC()
+	h.ArchivedAt = &now
+	h.UpdatedAt = now
+}
+
+func (h *Habit) Restore() {
+	if h.ArchivedAt == nil {
+		return
+	}
+	h.ArchivedAt = nil
+	h.UpdatedAt = time.Now().UTC()
+}
