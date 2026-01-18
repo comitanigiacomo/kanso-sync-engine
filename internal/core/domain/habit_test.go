@@ -17,6 +17,7 @@ func TestNewHabit(t *testing.T) {
 		hType        string
 		reminder     string
 		target       int
+		wantTarget   int
 		interval     int
 		weekdays     []int
 		wantErr      error
@@ -31,6 +32,8 @@ func TestNewHabit(t *testing.T) {
 			reminder:     "",
 			interval:     0,
 			weekdays:     nil,
+			target:       10,
+			wantTarget:   10,
 			wantErr:      nil,
 			wantFreq:     "daily",
 			wantInterval: 1,
@@ -43,17 +46,32 @@ func TestNewHabit(t *testing.T) {
 			reminder:     "",
 			interval:     3,
 			weekdays:     nil,
+			target:       30,
+			wantTarget:   30,
 			wantErr:      nil,
 			wantFreq:     "interval",
 			wantInterval: 3,
 		},
 		{
-			name:         "Success: Zero Target is Allowed",
+			name:         "Success: Boolean Forces Target to 1",
 			userID:       "u1",
 			title:        "Non fumare",
 			hType:        HabitTypeBoolean,
 			reminder:     "",
-			target:       0,
+			target:       100,
+			wantTarget:   1,
+			wantErr:      nil,
+			wantFreq:     "daily",
+			wantInterval: 1,
+		},
+		{
+			name:         "Success: Boolean Ignores Negative Target",
+			userID:       "u1",
+			title:        "Gym",
+			hType:        HabitTypeBoolean,
+			reminder:     "",
+			target:       -5,
+			wantTarget:   1,
 			wantErr:      nil,
 			wantFreq:     "daily",
 			wantInterval: 1,
@@ -64,6 +82,8 @@ func TestNewHabit(t *testing.T) {
 			title:        "Sveglia",
 			hType:        HabitTypeBoolean,
 			reminder:     "07:30",
+			target:       1,
+			wantTarget:   1,
 			wantErr:      nil,
 			wantFreq:     "daily",
 			wantInterval: 1,
@@ -76,6 +96,8 @@ func TestNewHabit(t *testing.T) {
 			reminder:     "",
 			interval:     5,
 			weekdays:     []int{1, 3},
+			target:       1,
+			wantTarget:   1,
 			wantErr:      nil,
 			wantFreq:     "specific_days",
 			wantInterval: 5,
@@ -88,6 +110,8 @@ func TestNewHabit(t *testing.T) {
 			reminder:     "",
 			interval:     1,
 			weekdays:     nil,
+			target:       10,
+			wantTarget:   10,
 			wantErr:      nil,
 			wantFreq:     "daily",
 			wantInterval: 1,
@@ -99,6 +123,8 @@ func TestNewHabit(t *testing.T) {
 			color:        "#FFF",
 			hType:        HabitTypeNumeric,
 			reminder:     "",
+			target:       1,
+			wantTarget:   1,
 			wantErr:      nil,
 			wantFreq:     "daily",
 			wantInterval: 1,
@@ -157,6 +183,8 @@ func TestNewHabit(t *testing.T) {
 			title:        "Weekend",
 			hType:        HabitTypeBoolean,
 			weekdays:     []int{0, 6},
+			target:       1,
+			wantTarget:   1,
 			wantErr:      nil,
 			wantFreq:     "specific_days",
 			wantInterval: 1,
@@ -192,7 +220,7 @@ func TestNewHabit(t *testing.T) {
 			wantErr: ErrHabitTitleEmpty,
 		},
 		{
-			name:    "Error: Negative Target",
+			name:    "Error: Negative Target (Numeric)",
 			userID:  "u1",
 			title:   "Bad Target",
 			hType:   HabitTypeNumeric,
@@ -225,6 +253,8 @@ func TestNewHabit(t *testing.T) {
 				assert.NotNil(t, habit)
 
 				assert.Equal(t, tt.hType, habit.Type)
+				assert.Equal(t, tt.wantTarget, habit.TargetValue)
+
 				if tt.reminder != "" {
 					assert.NotNil(t, habit.ReminderTime)
 					assert.Equal(t, tt.reminder, *habit.ReminderTime)
@@ -270,6 +300,16 @@ func TestHabit_Update(t *testing.T) {
 		assert.Equal(t, "interval", habit.FrequencyType)
 		assert.Nil(t, habit.Weekdays)
 		assert.True(t, habit.UpdatedAt.After(originalTime))
+	})
+
+	t.Run("Success: Boolean Type Forces Target to 1", func(t *testing.T) {
+		habit := createStandardHabit()
+
+		err := habit.Update("Title", "Desc", "#FFF", "icon", HabitTypeBoolean, "", "unit", 500, 1, nil)
+
+		assert.Nil(t, err)
+		assert.Equal(t, HabitTypeBoolean, habit.Type)
+		assert.Equal(t, 1, habit.TargetValue)
 	})
 
 	t.Run("Success: Clear Reminder", func(t *testing.T) {
@@ -403,5 +443,59 @@ func TestHabit_ArchiveAndRestore(t *testing.T) {
 		err := habit.Update("Change", "", "#000", "", HabitTypeNumeric, "", "kg", 1, 0, nil)
 
 		assert.Nil(t, err)
+	})
+}
+
+func TestHabit_ChangePosition(t *testing.T) {
+	createStandardHabit := func() *Habit {
+		h, _ := NewHabit("u1", "Original Title", "Original Desc", "#000000", "icon", HabitTypeNumeric, "", "ml", 10, 0, nil)
+		time.Sleep(1 * time.Millisecond)
+		return h
+	}
+
+	t.Run("Success: Change Sort Order", func(t *testing.T) {
+		habit := createStandardHabit()
+		originalTime := habit.UpdatedAt
+		time.Sleep(1 * time.Millisecond)
+
+		err := habit.ChangePosition(5)
+
+		assert.Nil(t, err)
+		assert.Equal(t, 5, habit.SortOrder)
+		assert.True(t, habit.UpdatedAt.After(originalTime))
+	})
+
+	t.Run("Error: Cannot Change Position of Archived Habit", func(t *testing.T) {
+		habit := createStandardHabit()
+		habit.Archive()
+
+		err := habit.ChangePosition(10)
+
+		assert.Equal(t, ErrHabitArchived, err)
+	})
+}
+
+func TestHabit_DefensiveCopy(t *testing.T) {
+	t.Run("Safety: NewHabit isolates Weekdays slice", func(t *testing.T) {
+		inputWeekdays := []int{1, 2}
+
+		habit, _ := NewHabit("u1", "Defensive", "", "#000", "", HabitTypeBoolean, "", "unit", 1, 0, inputWeekdays)
+
+		inputWeekdays[0] = 6
+
+		assert.Equal(t, 1, habit.Weekdays[0], "L'abitudine non deve essere influenzata da modifiche esterne")
+		assert.Equal(t, 2, habit.Weekdays[1])
+	})
+
+	t.Run("Safety: Update isolates Weekdays slice", func(t *testing.T) {
+		habit, _ := NewHabit("u1", "Defensive", "", "#000", "", HabitTypeBoolean, "", "unit", 1, 0, []int{1})
+
+		inputWeekdays := []int{3, 4}
+
+		_ = habit.Update("Defensive", "", "#000", "", HabitTypeBoolean, "", "unit", 1, 0, inputWeekdays)
+
+		inputWeekdays[0] = 5
+
+		assert.Equal(t, 3, habit.Weekdays[0])
 	})
 }

@@ -37,14 +37,14 @@ type Habit struct {
 	Description   string     `json:"description,omitempty"`
 	Color         string     `json:"color"`
 	Icon          string     `json:"icon"`
-	SortOrder     int        `json:"sort_order"`              // to reorder habit's visual position
-	Type          string     `json:"type"`                    // boolean, numeric, type
-	ReminderTime  *string    `json:"reminder_time,omitempty"` // at what time the user will be sent a notification
-	FrequencyType string     `json:"frequency_type"`          // "daily", "specific_days", "interval"
-	Weekdays      []int      `json:"weekdays,omitempty"`      // sunday, monday
-	Interval      int        `json:"interval,omitempty"`      // once a week, twice a week
-	TargetValue   int        `json:"target_value"`            // 200ml of water, 1kg of beef
-	Unit          string     `json:"unit"`                    // ml, kg
+	SortOrder     int        `json:"sort_order"`
+	Type          string     `json:"type"`
+	ReminderTime  *string    `json:"reminder_time,omitempty"`
+	FrequencyType string     `json:"frequency_type"`
+	Weekdays      []int      `json:"weekdays,omitempty"`
+	Interval      int        `json:"interval,omitempty"`
+	TargetValue   int        `json:"target_value"`
+	Unit          string     `json:"unit"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
 	ArchivedAt    *time.Time `json:"archived_at,omitempty"`
@@ -52,37 +52,40 @@ type Habit struct {
 	EndDate       *time.Time `json:"end_date,omitempty"`
 }
 
-func validateAndNormalize(title, color, hType, reminder string, target, interval int, weekdays []int) (string, int, error) {
+func validateAndNormalize(title, color, hType, reminder string, target, interval int, weekdays []int) (string, int, int, error) {
 	if strings.TrimSpace(title) == "" {
-		return "", 0, ErrHabitTitleEmpty
+		return "", 0, 0, ErrHabitTitleEmpty
+	}
+
+	finalTarget := target
+	if hType == HabitTypeBoolean {
+		finalTarget = 1
+	} else if target < 0 {
+		return "", 0, 0, ErrInvalidTarget
 	}
 
 	switch hType {
 	case HabitTypeBoolean, HabitTypeNumeric, HabitTypeTimer:
 	default:
-		return "", 0, ErrInvalidHabitType
+		return "", 0, 0, ErrInvalidHabitType
 	}
 
 	if reminder != "" && !reminderRegex.MatchString(reminder) {
-		return "", 0, ErrInvalidReminder
-	}
-
-	if target < 0 {
-		return "", 0, ErrInvalidTarget
+		return "", 0, 0, ErrInvalidReminder
 	}
 
 	if interval < 0 {
-		return "", 0, ErrInvalidInterval
+		return "", 0, 0, ErrInvalidInterval
 	}
 
 	for _, day := range weekdays {
 		if day < 0 || day > 6 {
-			return "", 0, ErrInvalidWeekdays
+			return "", 0, 0, ErrInvalidWeekdays
 		}
 	}
 
 	if color != "" && !colorRegex.MatchString(color) {
-		return "", 0, ErrInvalidColor
+		return "", 0, 0, ErrInvalidColor
 	}
 
 	freqType := "daily"
@@ -97,7 +100,7 @@ func validateAndNormalize(title, color, hType, reminder string, target, interval
 		safeInterval = 1
 	}
 
-	return freqType, safeInterval, nil
+	return freqType, safeInterval, finalTarget, nil
 }
 
 func NewHabit(userID, title, description, color, icon, hType, reminder, unit string, target, interval int, weekdays []int) (*Habit, error) {
@@ -105,7 +108,7 @@ func NewHabit(userID, title, description, color, icon, hType, reminder, unit str
 		return nil, ErrHabitInvalidUserID
 	}
 
-	freqType, safeInterval, err := validateAndNormalize(title, color, hType, reminder, target, interval, weekdays)
+	freqType, safeInterval, safeTarget, err := validateAndNormalize(title, color, hType, reminder, target, interval, weekdays)
 	if err != nil {
 		return nil, err
 	}
@@ -121,6 +124,12 @@ func NewHabit(userID, title, description, color, icon, hType, reminder, unit str
 		remPtr = &reminder
 	}
 
+	var safeWeekdays []int
+	if len(weekdays) > 0 {
+		safeWeekdays = make([]int, len(weekdays))
+		copy(safeWeekdays, weekdays)
+	}
+
 	return &Habit{
 		ID:            uuid.New().String(),
 		UserID:        userID,
@@ -131,8 +140,8 @@ func NewHabit(userID, title, description, color, icon, hType, reminder, unit str
 		Type:          hType,
 		ReminderTime:  remPtr,
 		Unit:          unit,
-		TargetValue:   target,
-		Weekdays:      weekdays,
+		TargetValue:   safeTarget,
+		Weekdays:      safeWeekdays,
 		Interval:      safeInterval,
 		FrequencyType: freqType,
 		SortOrder:     0,
@@ -143,12 +152,11 @@ func NewHabit(userID, title, description, color, icon, hType, reminder, unit str
 }
 
 func (h *Habit) Update(title, description, color, icon, hType, reminder, unit string, target, interval int, weekdays []int) error {
-
 	if h.ArchivedAt != nil {
 		return ErrHabitArchived
 	}
 
-	freqType, safeInterval, err := validateAndNormalize(title, color, hType, reminder, target, interval, weekdays)
+	freqType, safeInterval, safeTarget, err := validateAndNormalize(title, color, hType, reminder, target, interval, weekdays)
 	if err != nil {
 		return err
 	}
@@ -164,6 +172,12 @@ func (h *Habit) Update(title, description, color, icon, hType, reminder, unit st
 		remPtr = nil
 	}
 
+	var safeWeekdays []int
+	if len(weekdays) > 0 {
+		safeWeekdays = make([]int, len(weekdays))
+		copy(safeWeekdays, weekdays)
+	}
+
 	h.Title = strings.TrimSpace(title)
 	h.Description = description
 	h.Color = color
@@ -171,13 +185,23 @@ func (h *Habit) Update(title, description, color, icon, hType, reminder, unit st
 	h.Type = hType
 	h.ReminderTime = remPtr
 	h.Unit = unit
-	h.TargetValue = target
-	h.Weekdays = weekdays
+	h.TargetValue = safeTarget
+	h.Weekdays = safeWeekdays
 	h.Interval = safeInterval
 	h.FrequencyType = freqType
 
 	h.UpdatedAt = time.Now().UTC()
 
+	return nil
+}
+
+func (h *Habit) ChangePosition(newOrder int) error {
+	if h.ArchivedAt != nil {
+		return ErrHabitArchived
+	}
+
+	h.SortOrder = newOrder
+	h.UpdatedAt = time.Now().UTC()
 	return nil
 }
 
