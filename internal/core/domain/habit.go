@@ -11,6 +11,8 @@ import (
 
 var (
 	ErrHabitTitleEmpty    = errors.New("habit title cannot be empty")
+	ErrHabitTitleTooLong  = errors.New("habit title is too long (max 100 chars)")
+	ErrHabitDescTooLong   = errors.New("habit description is too long (max 500 chars)")
 	ErrHabitInvalidUserID = errors.New("invalid user id")
 	ErrInvalidColor       = errors.New("invalid color format (must be #RRGGBB)")
 	ErrInvalidWeekdays    = errors.New("invalid weekdays (must be 0-6)")
@@ -25,9 +27,14 @@ var colorRegex = regexp.MustCompile(`^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$`)
 var reminderRegex = regexp.MustCompile(`^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$`)
 
 const (
-	HabitTypeBoolean = "boolean"
-	HabitTypeNumeric = "numeric"
-	HabitTypeTimer   = "timer"
+	HabitTypeBoolean      = "boolean"
+	HabitTypeNumeric      = "numeric"
+	HabitTypeTimer        = "timer"
+	HabitFreqDaily        = "daily"
+	HabitFreqSpecificDays = "specific_days"
+	HabitFreqInterval     = "interval"
+	MaxTitleLen           = 100
+	MaxDescLen            = 500
 )
 
 type Habit struct {
@@ -52,9 +59,16 @@ type Habit struct {
 	EndDate       *time.Time `json:"end_date,omitempty"`
 }
 
-func validateAndNormalize(title, color, hType, reminder string, target, interval int, weekdays []int) (string, int, int, error) {
-	if strings.TrimSpace(title) == "" {
+func validateAndNormalize(title, desc, color, hType, reminder string, target, interval int, weekdays []int) (string, int, int, error) {
+	trimmedTitle := strings.TrimSpace(title)
+	if trimmedTitle == "" {
 		return "", 0, 0, ErrHabitTitleEmpty
+	}
+	if len(trimmedTitle) > MaxTitleLen {
+		return "", 0, 0, ErrHabitTitleTooLong
+	}
+	if len(desc) > MaxDescLen {
+		return "", 0, 0, ErrHabitDescTooLong
 	}
 
 	finalTarget := target
@@ -88,11 +102,11 @@ func validateAndNormalize(title, color, hType, reminder string, target, interval
 		return "", 0, 0, ErrInvalidColor
 	}
 
-	freqType := "daily"
+	freqType := HabitFreqDaily
 	if len(weekdays) > 0 {
-		freqType = "specific_days"
+		freqType = HabitFreqSpecificDays
 	} else if interval > 1 {
-		freqType = "interval"
+		freqType = HabitFreqInterval
 	}
 
 	safeInterval := interval
@@ -108,7 +122,7 @@ func NewHabit(userID, title, description, color, icon, hType, reminder, unit str
 		return nil, ErrHabitInvalidUserID
 	}
 
-	freqType, safeInterval, safeTarget, err := validateAndNormalize(title, color, hType, reminder, target, interval, weekdays)
+	freqType, safeInterval, safeTarget, err := validateAndNormalize(title, description, color, hType, reminder, target, interval, weekdays)
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +170,7 @@ func (h *Habit) Update(title, description, color, icon, hType, reminder, unit st
 		return ErrHabitArchived
 	}
 
-	freqType, safeInterval, safeTarget, err := validateAndNormalize(title, color, hType, reminder, target, interval, weekdays)
+	freqType, safeInterval, safeTarget, err := validateAndNormalize(title, description, color, hType, reminder, target, interval, weekdays)
 	if err != nil {
 		return err
 	}
