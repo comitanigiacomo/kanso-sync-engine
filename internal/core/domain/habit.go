@@ -34,6 +34,7 @@ const (
 	HabitFreqDaily        = "daily"
 	HabitFreqSpecificDays = "specific_days"
 	HabitFreqInterval     = "interval"
+	DefaultIcon           = "default_icon"
 	MaxTitleLen           = 100
 	MaxDescLen            = 500
 )
@@ -150,7 +151,7 @@ func NewHabit(userID, title, description, color, icon, hType, reminder, unit str
 	}
 
 	if icon == "" {
-		icon = "default_icon"
+		icon = DefaultIcon
 	}
 
 	now := time.Now().UTC()
@@ -196,7 +197,7 @@ func (h *Habit) Update(title, description, color, icon, hType, reminder, unit st
 	}
 
 	if icon == "" {
-		icon = "default_icon"
+		icon = DefaultIcon
 	}
 
 	var remPtr *string

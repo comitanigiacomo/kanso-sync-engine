@@ -357,7 +357,7 @@ func TestHabit_Update(t *testing.T) {
 		err := habit.Update("Title", "Desc", "#FFF", "", HabitTypeNumeric, "", "kg", 10, 1, nil)
 
 		assert.Nil(t, err)
-		assert.Equal(t, "default_icon", habit.Icon)
+		assert.Equal(t, DefaultIcon, habit.Icon)
 	})
 
 	t.Run("Error: Validation Failure (Empty Title)", func(t *testing.T) {
@@ -514,7 +514,7 @@ func TestHabit_DefensiveCopyAndHygiene(t *testing.T) {
 
 		inputWeekdays[0] = 6
 
-		assert.Equal(t, 1, habit.Weekdays[0], "L'abitudine non deve essere influenzata da modifiche esterne")
+		assert.Equal(t, 1, habit.Weekdays[0], "The habit must not be affected by external modifications")
 		assert.Equal(t, 2, habit.Weekdays[1])
 	})
 
@@ -535,6 +535,6 @@ func TestHabit_DefensiveCopyAndHygiene(t *testing.T) {
 
 		habit, _ := NewHabit("u1", "Sort", "", "#000", "", HabitTypeBoolean, "", "unit", 1, 0, inputWeekdays)
 
-		assert.Equal(t, []int{1, 3, 5}, habit.Weekdays, "I giorni devono essere ordinati e deduplicati")
+		assert.Equal(t, []int{1, 3, 5}, habit.Weekdays, "Days must be sorted and in order")
 	})
 }
