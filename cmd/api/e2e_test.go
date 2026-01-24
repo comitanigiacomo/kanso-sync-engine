@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,11 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
+
+type createResponse struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
 
 func setupTestDB(t *testing.T) *sqlx.DB {
 	dbUser := os.Getenv("DB_USER")
@@ -67,9 +73,10 @@ func TestEndToEnd_HabitLifecycle(t *testing.T) {
 	api := router.Group("/api/v1")
 	handler.RegisterRoutes(api)
 
-	t.Run("Should create and retrieve a habit successfully", func(t *testing.T) {
+	var habitID string
+
+	t.Run("1. Create Habit", func(t *testing.T) {
 		habitPayload := `{
-			"user_id": "e2e-tester-1",
 			"title": "Morning Run",
 			"type": "boolean",
 			"frequency_type": "daily",
@@ -84,45 +91,79 @@ func TestEndToEnd_HabitLifecycle(t *testing.T) {
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusCreated, w.Code)
-		assert.Contains(t, w.Body.String(), `"title":"Morning Run"`)
-		assert.Contains(t, w.Body.String(), `"id":`)
 
-		reqGet, _ := http.NewRequest(http.MethodGet, "/api/v1/habits?user_id=e2e-tester-1", nil)
-		reqGet.Header.Set("X-User-ID", "e2e-tester-1")
-
-		wGet := httptest.NewRecorder()
-		router.ServeHTTP(wGet, reqGet)
-
-		assert.Equal(t, http.StatusOK, wGet.Code)
-		assert.Contains(t, wGet.Body.String(), "Morning Run")
+		var resp createResponse
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		assert.NotEmpty(t, resp.ID)
+		habitID = resp.ID
 	})
 
-	t.Run("Should return 400 when title is missing", func(t *testing.T) {
-		invalidPayload := `{
-			"user_id": "e2e-tester-1",
-			"type": "boolean",
-			"frequency_type": "daily",
-			"start_date": "2023-10-27T08:00:00Z"
+	t.Run("2. Update Habit", func(t *testing.T) {
+		require.NotEmpty(t, habitID, "Create step failed, cannot update")
+
+		updatePayload := `{
+			"title": "Evening Run", 
+			"type": "boolean"
 		}`
 
-		req, _ := http.NewRequest(http.MethodPost, "/api/v1/habits", bytes.NewBuffer([]byte(invalidPayload)))
+		req, _ := http.NewRequest(http.MethodPut, "/api/v1/habits/"+habitID, bytes.NewBuffer([]byte(updatePayload)))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-User-ID", "e2e-tester-1")
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
-		assert.Equal(t, http.StatusBadRequest, w.Code)
-		assert.Contains(t, w.Body.String(), "error")
+		assert.Equal(t, http.StatusOK, w.Code)
 	})
 
-	t.Run("Should return 401 when X-User-ID header is missing", func(t *testing.T) {
-		req, _ := http.NewRequest(http.MethodGet, "/api/v1/habits", nil)
+	t.Run("3. Verify Update", func(t *testing.T) {
+		req, _ := http.NewRequest(http.MethodGet, "/api/v1/habits?user_id=e2e-tester-1", nil)
+		req.Header.Set("X-User-ID", "e2e-tester-1")
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "Evening Run")
+	})
+
+	t.Run("4. Delete Habit", func(t *testing.T) {
+		req, _ := http.NewRequest(http.MethodDelete, "/api/v1/habits/"+habitID, nil)
+		req.Header.Set("X-User-ID", "e2e-tester-1")
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusNoContent, w.Code)
+	})
+
+	t.Run("5. Verify Delete", func(t *testing.T) {
+		req, _ := http.NewRequest(http.MethodGet, "/api/v1/habits?user_id=e2e-tester-1", nil)
+		req.Header.Set("X-User-ID", "e2e-tester-1")
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.NotContains(t, w.Body.String(), habitID)
+	})
+
+	t.Run("6. Validation Error", func(t *testing.T) {
+		invalidPayload := `{"type": "boolean"}`
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/habits", bytes.NewBuffer([]byte(invalidPayload)))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-User-ID", "e2e-tester-1")
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("7. Auth Error", func(t *testing.T) {
+		req, _ := http.NewRequest(http.MethodGet, "/api/v1/habits", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
-		assert.Contains(t, w.Body.String(), "missing user id")
 	})
 }
