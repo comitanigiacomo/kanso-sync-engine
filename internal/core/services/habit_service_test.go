@@ -210,6 +210,33 @@ func TestHabitService_Update(t *testing.T) {
 
 		assert.ErrorIs(t, err, domain.ErrInvalidColor)
 	})
+
+	t.Run("Success: Partial Update should preserve existing fields", func(t *testing.T) {
+		repo := NewMockRepo()
+		svc := services.NewHabitService(repo)
+
+		existing, _ := domain.NewHabit("Old Title", "u1")
+		existing.Color = "#FF0000"
+		existing.Type = "timer"
+		repo.Create(context.Background(), existing)
+
+		input := services.UpdateHabitInput{
+			ID:     existing.ID,
+			UserID: "u1",
+			Title:  "Updated Title Only",
+		}
+
+		err := svc.Update(context.Background(), input)
+
+		assert.NoError(t, err)
+
+		updated, _ := repo.GetByID(context.Background(), existing.ID)
+
+		assert.Equal(t, "Updated Title Only", updated.Title)
+
+		assert.Equal(t, "#FF0000", updated.Color)
+		assert.Equal(t, "timer", updated.Type)
+	})
 }
 
 func TestHabitService_Delete(t *testing.T) {

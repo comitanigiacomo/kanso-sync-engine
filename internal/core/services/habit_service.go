@@ -45,18 +45,27 @@ type UpdateHabitInput struct {
 	Weekdays     []int
 }
 
+func mergeString(newVal, oldVal string) string {
+	if newVal == "" {
+		return oldVal
+	}
+	return newVal
+}
+
 func (s *HabitService) Create(ctx context.Context, input CreateHabitInput) (*domain.Habit, error) {
 	habit, err := domain.NewHabit(input.Title, input.UserID)
 	if err != nil {
 		return nil, err
 	}
 
+	finalType := mergeString(input.Type, habit.Type)
+
 	err = habit.Update(
 		input.Title,
 		input.Description,
 		input.Color,
 		input.Icon,
-		input.Type,
+		finalType,
 		input.ReminderTime,
 		input.Unit,
 		input.TargetValue,
@@ -88,12 +97,18 @@ func (s *HabitService) Update(ctx context.Context, input UpdateHabitInput) error
 		return domain.ErrHabitNotFound
 	}
 
+	title := mergeString(input.Title, habit.Title)
+	desc := mergeString(input.Description, habit.Description)
+	color := mergeString(input.Color, habit.Color)
+	icon := mergeString(input.Icon, habit.Icon)
+	hType := mergeString(input.Type, habit.Type)
+
 	err = habit.Update(
-		input.Title,
-		input.Description,
-		input.Color,
-		input.Icon,
-		input.Type,
+		title,
+		desc,
+		color,
+		icon,
+		hType,
 		input.ReminderTime,
 		input.Unit,
 		input.TargetValue,
