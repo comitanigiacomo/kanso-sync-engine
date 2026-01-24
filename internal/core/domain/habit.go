@@ -40,25 +40,31 @@ const (
 )
 
 type Habit struct {
-	ID            string     `json:"id"`
-	UserID        string     `json:"user_id"`
-	Title         string     `json:"title"`
-	Description   string     `json:"description,omitempty"`
-	Color         string     `json:"color"`
-	Icon          string     `json:"icon"`
-	SortOrder     int        `json:"sort_order"`
-	Type          string     `json:"type"`
-	ReminderTime  *string    `json:"reminder_time,omitempty"`
-	FrequencyType string     `json:"frequency_type"`
-	Weekdays      []int      `json:"weekdays,omitempty"`
-	Interval      int        `json:"interval,omitempty"`
-	TargetValue   int        `json:"target_value"`
-	Unit          string     `json:"unit"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
-	ArchivedAt    *time.Time `json:"archived_at,omitempty"`
-	StartDate     time.Time  `json:"start_date"`
-	EndDate       *time.Time `json:"end_date,omitempty"`
+	ID     string `json:"id" db:"id"`
+	UserID string `json:"user_id" db:"user_id"`
+
+	Title       string `json:"title" db:"title"`
+	Description string `json:"description" db:"description"`
+	Color       string `json:"color" db:"color"`
+	Icon        string `json:"icon" db:"icon"`
+	SortOrder   int    `json:"sort_order" db:"sort_order"`
+
+	Type          string `json:"type" db:"type"`
+	FrequencyType string `json:"frequency_type" db:"frequency_type"`
+
+	Weekdays []int `json:"weekdays,omitempty" db:"weekdays"`
+
+	ReminderTime *string `json:"reminder_time,omitempty" db:"reminder_time"`
+	Interval     int     `json:"interval,omitempty" db:"interval"`
+	TargetValue  int     `json:"target_value" db:"target_value"`
+	Unit         string  `json:"unit" db:"unit"`
+
+	StartDate  time.Time  `json:"start_date" db:"start_date"`
+	EndDate    *time.Time `json:"end_date,omitempty" db:"end_date"`
+	ArchivedAt *time.Time `json:"archived_at,omitempty" db:"archived_at"`
+
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 }
 
 type habitData struct {
