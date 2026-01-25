@@ -10,7 +10,7 @@ import (
 )
 
 func TestNewHabit(t *testing.T) {
-	t.Run("Success: Creates valid habit with defaults", func(t *testing.T) {
+	t.Run("Success: Creates valid habit with defaults AND Sync fields", func(t *testing.T) {
 		h, err := domain.NewHabit("Drink Water", "u1")
 
 		assert.Nil(t, err)
@@ -22,6 +22,10 @@ func TestNewHabit(t *testing.T) {
 		assert.Equal(t, domain.HabitTypeBoolean, h.Type)
 		assert.Equal(t, 1, h.TargetValue)
 		assert.Equal(t, domain.HabitFreqDaily, h.FrequencyType)
+
+		assert.Equal(t, 1, h.Version, "New habits MUST start at Version 1 for Optimistic Locking")
+		assert.Nil(t, h.DeletedAt, "New habits MUST NOT be marked as deleted")
+
 		assert.WithinDuration(t, time.Now().UTC(), h.CreatedAt, 2*time.Second)
 	})
 
@@ -247,9 +251,10 @@ func TestHabit_Lifecycle(t *testing.T) {
 		return h
 	}
 
-	t.Run("Success: Update changes UpdatedAt", func(t *testing.T) {
+	t.Run("Success: Update changes UpdatedAt BUT NOT Version", func(t *testing.T) {
 		habit := createStandardHabit()
 		originalTime := habit.UpdatedAt
+		originalVersion := habit.Version
 
 		err := habit.Update("New Title", "New Desc", "#FFF", "new_icon",
 			domain.HabitTypeTimer, "20:00", "kg", 20, 3, nil)
@@ -257,6 +262,8 @@ func TestHabit_Lifecycle(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Equal(t, "New Title", habit.Title)
 		assert.True(t, habit.UpdatedAt.After(originalTime))
+
+		assert.Equal(t, originalVersion, habit.Version, "Domain Update must NOT increment version manually")
 	})
 
 	t.Run("Success: Clear Reminder", func(t *testing.T) {
