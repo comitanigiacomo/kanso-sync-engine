@@ -62,7 +62,7 @@ func TestEndToEnd_HabitLifecycle(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	_, err := db.Exec("TRUNCATE TABLE habits")
+	_, err := db.Exec("TRUNCATE TABLE habits CASCADE")
 	require.NoError(t, err, "Failed to truncate habits table")
 
 	repo := repository.NewPostgresHabitRepository(db)

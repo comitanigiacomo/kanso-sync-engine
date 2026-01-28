@@ -47,8 +47,8 @@ func setupTestDB(t *testing.T) *sqlx.DB {
 }
 
 func cleanup(t *testing.T, db *sqlx.DB) {
-	_, err := db.Exec("TRUNCATE TABLE habits")
-	require.NoError(t, err, "Impossibile pulire il DB")
+	_, err := db.Exec("TRUNCATE TABLE habits, habit_entries, users CASCADE")
+	require.NoError(t, err, "Failed to clean up database for Habit Repository tests")
 }
 
 func TestPostgresHabitRepository_Integration(t *testing.T) {
