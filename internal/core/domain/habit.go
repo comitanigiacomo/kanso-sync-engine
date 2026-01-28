@@ -22,6 +22,7 @@ var (
 	ErrHabitArchived      = errors.New("cannot update an archived habit")
 	ErrInvalidHabitType   = errors.New("invalid habit type (must be boolean, numeric, or timer)")
 	ErrInvalidReminder    = errors.New("invalid reminder format (must be HH:MM 24h)")
+	ErrHabitConflict      = errors.New("habit version conflict")
 )
 
 var colorRegex = regexp.MustCompile(`^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$`)
@@ -62,6 +63,9 @@ type Habit struct {
 	StartDate  time.Time  `json:"start_date" db:"start_date"`
 	EndDate    *time.Time `json:"end_date,omitempty" db:"end_date"`
 	ArchivedAt *time.Time `json:"archived_at,omitempty" db:"archived_at"`
+
+	Version   int        `json:"version" db:"version"`
+	DeletedAt *time.Time `json:"deleted_at,omitempty" db:"deleted_at"`
 
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
@@ -207,6 +211,7 @@ func NewHabit(title, userID string) (*Habit, error) {
 		CreatedAt: now,
 		UpdatedAt: now,
 		StartDate: now,
+		Version:   1,
 	}
 
 	h.applyChanges(data, "")
