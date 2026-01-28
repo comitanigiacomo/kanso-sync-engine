@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/domain"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/services"
@@ -25,6 +26,9 @@ func (m *MockRepo) Create(ctx context.Context, habit *domain.Habit) error {
 	if m.simulateError != nil {
 		return m.simulateError
 	}
+	if habit.Version == 0 {
+		habit.Version = 1
+	}
 	m.store[habit.ID] = habit
 	return nil
 }
@@ -37,6 +41,9 @@ func (m *MockRepo) GetByID(ctx context.Context, id string) (*domain.Habit, error
 	if !ok {
 		return nil, domain.ErrHabitNotFound
 	}
+	if h.DeletedAt != nil {
+		return nil, domain.ErrHabitNotFound
+	}
 	return h, nil
 }
 
@@ -46,7 +53,7 @@ func (m *MockRepo) ListByUserID(ctx context.Context, userID string) ([]*domain.H
 	}
 	var list []*domain.Habit
 	for _, h := range m.store {
-		if h.UserID == userID {
+		if h.UserID == userID && h.DeletedAt == nil {
 			list = append(list, h)
 		}
 	}
@@ -57,9 +64,18 @@ func (m *MockRepo) Update(ctx context.Context, habit *domain.Habit) error {
 	if m.simulateError != nil {
 		return m.simulateError
 	}
-	if _, ok := m.store[habit.ID]; !ok {
+	existing, ok := m.store[habit.ID]
+	if !ok {
 		return domain.ErrHabitNotFound
 	}
+
+	if habit.Version != existing.Version {
+		return domain.ErrHabitConflict
+	}
+
+	habit.Version++
+	habit.UpdatedAt = time.Now().UTC()
+
 	m.store[habit.ID] = habit
 	return nil
 }
@@ -68,8 +84,28 @@ func (m *MockRepo) Delete(ctx context.Context, id string) error {
 	if m.simulateError != nil {
 		return m.simulateError
 	}
-	delete(m.store, id)
+
+	h, ok := m.store[id]
+	if !ok {
+		return domain.ErrHabitNotFound
+	}
+
+	now := time.Now().UTC()
+	h.DeletedAt = &now
+	h.Version++
+	h.UpdatedAt = now
+
 	return nil
+}
+
+func (m *MockRepo) GetChanges(ctx context.Context, userID string, since time.Time) ([]*domain.Habit, error) {
+	var changes []*domain.Habit
+	for _, h := range m.store {
+		if h.UserID == userID && h.UpdatedAt.After(since) {
+			changes = append(changes, h)
+		}
+	}
+	return changes, nil
 }
 
 func TestHabitService_Create(t *testing.T) {
@@ -134,6 +170,7 @@ func TestHabitService_Update(t *testing.T) {
 		svc := services.NewHabitService(repo)
 
 		existing, _ := domain.NewHabit("Old Title", "user-1")
+		existing.Version = 1
 		repo.Create(context.Background(), existing)
 
 		updateInput := services.UpdateHabitInput{
@@ -218,6 +255,7 @@ func TestHabitService_Update(t *testing.T) {
 		existing, _ := domain.NewHabit("Old Title", "u1")
 		existing.Color = "#FF0000"
 		existing.Type = "timer"
+		existing.Version = 1
 		repo.Create(context.Background(), existing)
 
 		input := services.UpdateHabitInput{
@@ -233,7 +271,6 @@ func TestHabitService_Update(t *testing.T) {
 		updated, _ := repo.GetByID(context.Background(), existing.ID)
 
 		assert.Equal(t, "Updated Title Only", updated.Title)
-
 		assert.Equal(t, "#FF0000", updated.Color)
 		assert.Equal(t, "timer", updated.Type)
 	})
@@ -306,5 +343,49 @@ func TestHabitService_ListAndGet(t *testing.T) {
 		list, err := svc.ListByUserID(context.Background(), "user-999")
 		assert.NoError(t, err)
 		assert.Len(t, list, 0)
+	})
+}
+
+func TestHabitService_SyncLogic(t *testing.T) {
+	t.Run("Optimistic Locking: Should fail if client has old version", func(t *testing.T) {
+		repo := NewMockRepo()
+		svc := services.NewHabitService(repo)
+
+		existing, _ := domain.NewHabit("V2 Habit", "user-1")
+		existing.Version = 2
+		repo.Create(context.Background(), existing)
+
+		input := services.UpdateHabitInput{
+			ID:      existing.ID,
+			UserID:  "user-1",
+			Title:   "Override attempt",
+			Version: 1,
+		}
+
+		err := svc.Update(context.Background(), input)
+
+		assert.ErrorIs(t, err, domain.ErrHabitConflict)
+	})
+
+	t.Run("GetDelta: Should return only changed items", func(t *testing.T) {
+		repo := NewMockRepo()
+		svc := services.NewHabitService(repo)
+		ctx := context.Background()
+
+		h1, _ := domain.NewHabit("Old", "user-1")
+		h1.UpdatedAt = time.Now().Add(-1 * time.Hour)
+		repo.Create(ctx, h1)
+
+		lastSync := time.Now()
+
+		h2, _ := domain.NewHabit("New", "user-1")
+		h2.UpdatedAt = time.Now().Add(1 * time.Minute)
+		repo.Create(ctx, h2)
+
+		deltas, err := svc.GetDelta(ctx, "user-1", lastSync)
+
+		assert.NoError(t, err)
+		assert.Len(t, deltas, 1)
+		assert.Equal(t, h2.ID, deltas[0].ID)
 	})
 }
