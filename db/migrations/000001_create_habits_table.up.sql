@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS habits (
     sort_order INTEGER DEFAULT 0,
 
     type VARCHAR(50) NOT NULL CHECK (type IN ('boolean', 'timer', 'numeric')),
-    frequency_type VARCHAR(50) NOT NULL CHECK (frequency_type IN ('daily', 'weekly', 'specific_days')),
+    
+    frequency_type VARCHAR(50) NOT NULL CHECK (frequency_type IN ('daily', 'weekly', 'specific_days', 'interval')),
 
     weekdays JSONB,
     reminder_time VARCHAR(10),
@@ -30,11 +31,15 @@ CREATE TABLE IF NOT EXISTS habits (
     end_date TIMESTAMP WITH TIME ZONE,
     archived_at TIMESTAMP WITH TIME ZONE,
 
+    version INTEGER DEFAULT 1 NOT NULL,
+    deleted_at TIMESTAMP WITH TIME ZONE,
+
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_habits_user_id ON habits(user_id);
+CREATE INDEX IF NOT EXISTS idx_habits_updated_at ON habits(updated_at);
 
 CREATE TRIGGER update_habits_updated_at
 BEFORE UPDATE ON habits
