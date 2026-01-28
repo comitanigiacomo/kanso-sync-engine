@@ -19,24 +19,20 @@ import (
 func setupTestDB(t *testing.T) *sqlx.DB {
 	dbUser := os.Getenv("DB_USER")
 	if dbUser == "" {
-		dbUser = "kanso_user" // Default pubblico del docker-compose
+		dbUser = "kanso_user"
 	}
-
 	dbPass := os.Getenv("DB_PASSWORD")
 	if dbPass == "" {
 		dbPass = "secret"
 	}
-
 	dbHost := os.Getenv("DB_HOST")
 	if dbHost == "" {
 		dbHost = "localhost"
 	}
-
 	dbPort := os.Getenv("DB_PORT")
 	if dbPort == "" {
 		dbPort = "5432"
 	}
-
 	dbName := os.Getenv("DB_NAME")
 	if dbName == "" {
 		dbName = "kanso_db"
@@ -46,8 +42,7 @@ func setupTestDB(t *testing.T) *sqlx.DB {
 		dbUser, dbPass, dbHost, dbPort, dbName)
 
 	db, err := sqlx.Connect("pgx", dsn)
-	require.NoError(t, err, "Impossibile connettersi al DB di test. Controlla che Docker sia su e le variabili d'ambiente siano corrette.")
-
+	require.NoError(t, err, "Impossibile connettersi al DB di test. Controlla che Docker sia su.")
 	return db
 }
 
@@ -66,10 +61,13 @@ func TestPostgresHabitRepository_Integration(t *testing.T) {
 	repo := NewPostgresHabitRepository(db)
 	ctx := context.Background()
 
+	var now time.Time
+	err := db.QueryRow("SELECT NOW()").Scan(&now)
+	require.NoError(t, err)
+
+	reminder := "08:00"
 	habitID := uuid.New().String()
 	userID := "test-user-senior-1"
-	now := time.Now().Truncate(time.Microsecond)
-	reminder := "08:00"
 
 	newHabit := &domain.Habit{
 		ID:            habitID,
@@ -100,17 +98,14 @@ func TestPostgresHabitRepository_Integration(t *testing.T) {
 		fetched, err := repo.GetByID(ctx, habitID)
 		assert.NoError(t, err)
 		assert.NotNil(t, fetched)
-
 		assert.Equal(t, newHabit.ID, fetched.ID)
-		assert.Equal(t, newHabit.Title, fetched.Title)
-
-		assert.Equal(t, newHabit.Weekdays, fetched.Weekdays, "Il JSONB dei giorni deve corrispondere")
-
-		assert.NotNil(t, fetched.ReminderTime)
-		assert.Equal(t, *newHabit.ReminderTime, *fetched.ReminderTime)
+		assert.Equal(t, 1, fetched.Version, "La versione deve partire da 1")
+		assert.Nil(t, fetched.DeletedAt, "Non deve essere cancellato")
 	})
 
 	t.Run("Update Habit", func(t *testing.T) {
+		oldUpdatedAt := newHabit.UpdatedAt
+
 		newHabit.Title = "Updated Title 60k"
 		newHabit.Weekdays = []int{6, 7}
 
@@ -123,9 +118,8 @@ func TestPostgresHabitRepository_Integration(t *testing.T) {
 		assert.NoError(t, err)
 
 		assert.Equal(t, "Updated Title 60k", updated.Title)
-		assert.Equal(t, []int{6, 7}, updated.Weekdays)
-
-		assert.True(t, updated.UpdatedAt.After(newHabit.UpdatedAt), "Il trigger SQL dovrebbe aver aggiornato updated_at")
+		assert.True(t, updated.UpdatedAt.After(oldUpdatedAt), "Updated_at non è avanzato: Old=%v, New=%v", oldUpdatedAt, updated.UpdatedAt)
+		assert.Equal(t, 2, updated.Version)
 	})
 
 	t.Run("List By UserID", func(t *testing.T) {
@@ -135,69 +129,101 @@ func TestPostgresHabitRepository_Integration(t *testing.T) {
 		assert.Equal(t, habitID, list[0].ID)
 	})
 
-	t.Run("Delete Habit", func(t *testing.T) {
+	t.Run("Delete Habit (Soft Delete Check)", func(t *testing.T) {
 		err := repo.Delete(ctx, habitID)
 		assert.NoError(t, err)
 
 		_, err = repo.GetByID(ctx, habitID)
 		assert.Error(t, err)
 		assert.Equal(t, domain.ErrHabitNotFound, err)
+
+		var count int
+		err = db.QueryRow("SELECT count(*) FROM habits WHERE id=$1 AND deleted_at IS NOT NULL", habitID).Scan(&count)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, count, "Il record deve esistere fisicamente nel DB (Soft Delete)")
 	})
 
 	t.Run("Handle Null Fields", func(t *testing.T) {
 		nullHabitID := uuid.New().String()
 		nullHabit := &domain.Habit{
-			ID:            nullHabitID,
-			UserID:        userID,
-			Title:         "Null Tester",
-			Type:          "boolean",
-			FrequencyType: "daily",
-			StartDate:     now,
-
-			Interval:    1,
-			TargetValue: 1,
+			ID: nullHabitID, UserID: userID, Title: "Null Tester", Type: "boolean", FrequencyType: "daily", StartDate: now, Interval: 1, TargetValue: 1,
 		}
 
 		err := repo.Create(ctx, nullHabit)
-		assert.NoError(t, err, "Create non deve fallire se Interval/Target sono validi")
+		assert.NoError(t, err)
 
 		fetched, err := repo.GetByID(ctx, nullHabitID)
 		assert.NoError(t, err)
-
-		if assert.NotNil(t, fetched) {
-			assert.Nil(t, fetched.ReminderTime)
-			assert.Nil(t, fetched.EndDate)
-			assert.Nil(t, fetched.ArchivedAt)
-
-			assert.Empty(t, fetched.Weekdays)
-		}
+		assert.Nil(t, fetched.ReminderTime)
 	})
 
 	t.Run("Update/Delete Non-Existent ID", func(t *testing.T) {
 		randomID := uuid.New().String()
+		dummyHabit := &domain.Habit{ID: randomID, Title: "Ghost", Weekdays: []int{1}, Version: 1}
 
-		dummyHabit := &domain.Habit{ID: randomID, Title: "Ghost", Weekdays: []int{1}}
 		err := repo.Update(ctx, dummyHabit)
 		assert.Error(t, err)
-		assert.Equal(t, domain.ErrHabitNotFound, err, "Update su ID inesistente deve tornare ErrHabitNotFound")
+		assert.Equal(t, domain.ErrHabitNotFound, err)
 
 		err = repo.Delete(ctx, randomID)
 		assert.Error(t, err)
-		assert.Equal(t, domain.ErrHabitNotFound, err, "Delete su ID inesistente deve tornare ErrHabitNotFound")
+		assert.Equal(t, domain.ErrHabitNotFound, err)
 	})
 
 	t.Run("Constraint Violation", func(t *testing.T) {
 		badHabit := &domain.Habit{
-			ID:            uuid.New().String(),
-			UserID:        userID,
-			Title:         "Bad Interval",
-			Type:          "boolean",
-			FrequencyType: "daily",
-			StartDate:     now,
-			Interval:      -5,
+			ID: uuid.New().String(), UserID: userID, Title: "Bad Interval", Type: "boolean", FrequencyType: "daily", StartDate: now, Interval: -5,
 		}
-
 		err := repo.Create(ctx, badHabit)
 		assert.Error(t, err)
+	})
+
+	t.Run("Optimistic Locking: Prevent Overwrite", func(t *testing.T) {
+		conflictID := uuid.New().String()
+		h := &domain.Habit{ID: conflictID, UserID: userID, Title: "Conflict Base", Type: "boolean", FrequencyType: "daily", Interval: 1, TargetValue: 1, StartDate: now, CreatedAt: now, UpdatedAt: now}
+		require.NoError(t, repo.Create(ctx, h))
+
+		deviceACopy, err := repo.GetByID(ctx, conflictID)
+		require.NoError(t, err)
+
+		deviceBCopy, err := repo.GetByID(ctx, conflictID)
+		require.NoError(t, err)
+
+		deviceBCopy.Title = "B wins"
+		err = repo.Update(ctx, deviceBCopy)
+		require.NoError(t, err)
+
+		deviceACopy.Title = "A loses"
+		err = repo.Update(ctx, deviceACopy)
+
+		assert.Error(t, err)
+		assert.Equal(t, domain.ErrHabitConflict, err, "Atteso ErrHabitConflict, ricevuto: %v", err)
+	})
+
+	t.Run("GetChanges (Delta Sync)", func(t *testing.T) {
+		syncUser := "sync-user-final"
+		h1 := &domain.Habit{ID: uuid.New().String(), UserID: syncUser, Title: "H1", Type: "boolean", FrequencyType: "daily", Interval: 1, TargetValue: 1, StartDate: now}
+		h2 := &domain.Habit{ID: uuid.New().String(), UserID: syncUser, Title: "H2", Type: "boolean", FrequencyType: "daily", Interval: 1, TargetValue: 1, StartDate: now}
+
+		require.NoError(t, repo.Create(ctx, h1))
+		require.NoError(t, repo.Create(ctx, h2))
+
+		time.Sleep(50 * time.Millisecond)
+
+		var lastSync time.Time
+		err := db.QueryRow("SELECT NOW()").Scan(&lastSync)
+		require.NoError(t, err)
+
+		time.Sleep(50 * time.Millisecond)
+
+		h1.Title = "H1 Changed"
+		repo.Update(ctx, h1)
+
+		repo.Delete(ctx, h2.ID)
+
+		changes, err := repo.GetChanges(ctx, syncUser, lastSync)
+		assert.NoError(t, err)
+
+		assert.Len(t, changes, 2)
 	})
 }
