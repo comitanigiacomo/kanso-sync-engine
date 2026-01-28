@@ -1,7 +1,9 @@
 package http
 
 import (
+	"errors"
 	"net/http"
+	"time"
 
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/domain"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/services"
@@ -19,29 +21,32 @@ func NewHabitHandler(svc *services.HabitService) *HabitHandler {
 }
 
 type createHabitRequest struct {
-	Title        string `json:"title" binding:"required"`
-	Description  string `json:"description"`
-	Color        string `json:"color"`
-	Icon         string `json:"icon"`
-	Type         string `json:"type"`
-	ReminderTime string `json:"reminder_time"`
-	Unit         string `json:"unit"`
-	TargetValue  int    `json:"target_value"`
-	Interval     int    `json:"interval"`
-	Weekdays     []int  `json:"weekdays"`
+	Title         string `json:"title" binding:"required"`
+	Description   string `json:"description"`
+	Color         string `json:"color"`
+	Icon          string `json:"icon"`
+	Type          string `json:"type"`
+	ReminderTime  string `json:"reminder_time"`
+	Unit          string `json:"unit"`
+	TargetValue   int    `json:"target_value"`
+	Interval      int    `json:"interval"`
+	Weekdays      []int  `json:"weekdays"`
+	FrequencyType string `json:"frequency_type"`
 }
 
 type updateHabitRequest struct {
-	Title        string `json:"title"`
-	Description  string `json:"description"`
-	Color        string `json:"color"`
-	Icon         string `json:"icon"`
-	Type         string `json:"type"`
-	ReminderTime string `json:"reminder_time"`
-	Unit         string `json:"unit"`
-	TargetValue  int    `json:"target_value"`
-	Interval     int    `json:"interval"`
-	Weekdays     []int  `json:"weekdays"`
+	Title         string `json:"title"`
+	Description   string `json:"description"`
+	Color         string `json:"color"`
+	Icon          string `json:"icon"`
+	Type          string `json:"type"`
+	ReminderTime  string `json:"reminder_time"`
+	Unit          string `json:"unit"`
+	TargetValue   int    `json:"target_value"`
+	Interval      int    `json:"interval"`
+	Weekdays      []int  `json:"weekdays"`
+	FrequencyType string `json:"frequency_type"`
+	Version       int    `json:"version"`
 }
 
 func (h *HabitHandler) RegisterRoutes(router *gin.RouterGroup) {
@@ -49,6 +54,7 @@ func (h *HabitHandler) RegisterRoutes(router *gin.RouterGroup) {
 	{
 		habits.POST("", h.Create)
 		habits.GET("", h.List)
+		habits.GET("/sync", h.Sync)
 		habits.PUT("/:id", h.Update)
 		habits.DELETE("/:id", h.Delete)
 	}
@@ -68,22 +74,23 @@ func (h *HabitHandler) Create(c *gin.Context) {
 	}
 
 	input := services.CreateHabitInput{
-		UserID:       userID,
-		Title:        req.Title,
-		Description:  req.Description,
-		Color:        req.Color,
-		Icon:         req.Icon,
-		Type:         req.Type,
-		ReminderTime: req.ReminderTime,
-		Unit:         req.Unit,
-		TargetValue:  req.TargetValue,
-		Interval:     req.Interval,
-		Weekdays:     req.Weekdays,
+		UserID:        userID,
+		Title:         req.Title,
+		Description:   req.Description,
+		Color:         req.Color,
+		Icon:          req.Icon,
+		Type:          req.Type,
+		ReminderTime:  req.ReminderTime,
+		Unit:          req.Unit,
+		TargetValue:   req.TargetValue,
+		Interval:      req.Interval,
+		Weekdays:      req.Weekdays,
+		FrequencyType: req.FrequencyType,
 	}
 
 	habit, err := h.svc.Create(c.Request.Context(), input)
 	if err != nil {
-		if err == domain.ErrHabitTitleEmpty || err == domain.ErrInvalidColor {
+		if errors.Is(err, domain.ErrHabitTitleEmpty) || errors.Is(err, domain.ErrInvalidColor) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -110,6 +117,37 @@ func (h *HabitHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, list)
 }
 
+func (h *HabitHandler) Sync(c *gin.Context) {
+	userID := c.GetHeader("X-User-ID")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing user id header"})
+		return
+	}
+
+	lastSyncStr := c.Query("last_sync")
+	var lastSync time.Time
+	var err error
+
+	if lastSyncStr != "" {
+		lastSync, err = time.Parse(time.RFC3339, lastSyncStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid last_sync format, use RFC3339"})
+			return
+		}
+	}
+
+	deltas, err := h.svc.GetDelta(c.Request.Context(), userID, lastSync)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "sync failed"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"changes":   deltas,
+		"timestamp": time.Now().UTC(),
+	})
+}
+
 func (h *HabitHandler) Update(c *gin.Context) {
 	userID := c.GetHeader("X-User-ID")
 	if userID == "" {
@@ -126,27 +164,37 @@ func (h *HabitHandler) Update(c *gin.Context) {
 	}
 
 	input := services.UpdateHabitInput{
-		ID:           id,
-		UserID:       userID,
-		Title:        req.Title,
-		Description:  req.Description,
-		Color:        req.Color,
-		Icon:         req.Icon,
-		Type:         req.Type,
-		ReminderTime: req.ReminderTime,
-		Unit:         req.Unit,
-		TargetValue:  req.TargetValue,
-		Interval:     req.Interval,
-		Weekdays:     req.Weekdays,
+		ID:            id,
+		UserID:        userID,
+		Title:         req.Title,
+		Description:   req.Description,
+		Color:         req.Color,
+		Icon:          req.Icon,
+		Type:          req.Type,
+		ReminderTime:  req.ReminderTime,
+		Unit:          req.Unit,
+		TargetValue:   req.TargetValue,
+		Interval:      req.Interval,
+		Weekdays:      req.Weekdays,
+		FrequencyType: req.FrequencyType,
+		Version:       req.Version,
 	}
 
 	err := h.svc.Update(c.Request.Context(), input)
 	if err != nil {
-		if err == domain.ErrHabitNotFound {
+		if errors.Is(err, domain.ErrHabitConflict) {
+			c.JSON(http.StatusConflict, gin.H{
+				"error":   "version conflict",
+				"message": "Data has been modified elsewhere. Please sync.",
+			})
+			return
+		}
+
+		if errors.Is(err, domain.ErrHabitNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "habit not found"})
 			return
 		}
-		if err == domain.ErrInvalidColor || err == domain.ErrHabitTitleEmpty {
+		if errors.Is(err, domain.ErrInvalidColor) || errors.Is(err, domain.ErrHabitTitleEmpty) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -168,7 +216,7 @@ func (h *HabitHandler) Delete(c *gin.Context) {
 
 	err := h.svc.Delete(c.Request.Context(), id, userID)
 	if err != nil {
-		if err == domain.ErrHabitNotFound {
+		if errors.Is(err, domain.ErrHabitNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "habit not found"})
 			return
 		}
