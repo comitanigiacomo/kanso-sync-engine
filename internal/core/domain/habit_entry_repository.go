@@ -9,6 +9,7 @@ import (
 var (
 	ErrEntryNotFound = errors.New("habit entry not found")
 	ErrEntryConflict = errors.New("habit entry version conflict")
+	ErrUnauthorized  = errors.New("unauthorized action")
 )
 
 type HabitEntryRepository interface {
