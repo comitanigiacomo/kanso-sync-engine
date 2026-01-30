@@ -222,7 +222,7 @@ func TestSyncEndpoint(t *testing.T) {
 	ctx := context.Background()
 
 	hOld, _ := domain.NewHabit("Old", "user-1")
-	hOld.UpdatedAt = time.Now().UTC().Add(-24 * time.Hour) // Usa UTC
+	hOld.UpdatedAt = time.Now().UTC().Add(-24 * time.Hour)
 	repo.Create(ctx, hOld)
 
 	lastSyncTime := time.Now().UTC().Add(-1 * time.Hour)
