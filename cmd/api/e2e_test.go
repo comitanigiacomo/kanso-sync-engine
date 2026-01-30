@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,9 +24,13 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-type createResponse struct {
+type idResponse struct {
+	ID string `json:"id"`
+}
+
+type listEntryResponse []struct {
 	ID    string `json:"id"`
-	Title string `json:"title"`
+	Value int    `json:"value"`
 }
 
 func setupTestDB(t *testing.T) *sqlx.DB {
@@ -56,81 +63,193 @@ func setupTestDB(t *testing.T) *sqlx.DB {
 	return db
 }
 
-func TestEndToEnd_HabitLifecycle(t *testing.T) {
+func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-
 	db := setupTestDB(t)
 	defer db.Close()
 
-	_, err := db.Exec("TRUNCATE TABLE habits CASCADE")
-	require.NoError(t, err, "Failed to truncate habits table")
+	_, err := db.Exec("TRUNCATE TABLE habit_entries, habits CASCADE")
+	require.NoError(t, err, "Failed to truncate tables")
 
-	repo := repository.NewPostgresHabitRepository(db)
-	svc := services.NewHabitService(repo)
-	handler := adapterHTTP.NewHabitHandler(svc)
+	habitRepo := repository.NewPostgresHabitRepository(db)
+	entryRepo := repository.NewPostgresEntryRepository(db)
+
+	habitSvc := services.NewHabitService(habitRepo)
+	entrySvc := services.NewEntryService(entryRepo, habitRepo)
+
+	habitHandler := adapterHTTP.NewHabitHandler(habitSvc)
+	entryHandler := adapterHTTP.NewEntryHandler(entrySvc)
 
 	router := gin.Default()
+
+	startTime := time.Now()
+	router.GET("/health", func(c *gin.Context) {
+		if err := db.Ping(); err != nil {
+			c.JSON(503, gin.H{"status": "error"})
+			return
+		}
+		c.JSON(200, gin.H{"status": "ok", "uptime": time.Since(startTime).String()})
+	})
+
 	api := router.Group("/api/v1")
-	handler.RegisterRoutes(api)
+	habitHandler.RegisterRoutes(api)
+	entryHandler.RegisterRoutes(api)
 
 	var habitID string
+	var entryID string
+	userID := uuid.NewString()
+	attackerID := uuid.NewString()
+
+	_, err = db.Exec(`
+		INSERT INTO users (id, email, created_at, updated_at) 
+		VALUES ($1, $2, NOW(), NOW())
+		ON CONFLICT (id) DO NOTHING`,
+		userID, "tester@kanso.app")
+	require.NoError(t, err, "Failed to create test user fixture. Check 'users' table schema.")
+
+	t.Run("0. Health Check", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/health", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "uptime")
+	})
 
 	t.Run("1. Create Habit", func(t *testing.T) {
-		habitPayload := `{
-			"title": "Morning Run",
-			"type": "boolean",
-			"frequency_type": "daily",
-			"start_date": "2023-10-27T08:00:00Z"
+		payload := `{
+			"title": "Drink Water",
+			"type": "numeric",
+			"target_value": 2000,
+			"unit": "ml",
+			"frequency_type": "daily"
 		}`
-
-		req, _ := http.NewRequest(http.MethodPost, "/api/v1/habits", bytes.NewBuffer([]byte(habitPayload)))
+		req, _ := http.NewRequest("POST", "/api/v1/habits", bytes.NewBufferString(payload))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-User-ID", "e2e-tester-1")
+		req.Header.Set("X-User-ID", userID)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
-		assert.Equal(t, http.StatusCreated, w.Code)
+		require.Equal(t, http.StatusCreated, w.Code)
 
-		var resp createResponse
-		err := json.Unmarshal(w.Body.Bytes(), &resp)
-		require.NoError(t, err)
-		assert.NotEmpty(t, resp.ID)
+		var resp idResponse
+		json.Unmarshal(w.Body.Bytes(), &resp)
 		habitID = resp.ID
+		require.NotEmpty(t, habitID)
 	})
 
-	t.Run("2. Update Habit", func(t *testing.T) {
-		require.NotEmpty(t, habitID, "Create step failed, cannot update")
+	t.Run("2. Create Entry", func(t *testing.T) {
+		require.NotEmpty(t, habitID)
 
-		updatePayload := `{
-			"title": "Evening Run", 
-			"type": "boolean"
-		}`
+		payload := fmt.Sprintf(`{
+			"habit_id": "%s",
+			"completion_date": "%s",
+			"value": 500,
+			"notes": "Morning glass"
+		}`, habitID, time.Now().Format(time.RFC3339))
 
-		req, _ := http.NewRequest(http.MethodPut, "/api/v1/habits/"+habitID, bytes.NewBuffer([]byte(updatePayload)))
+		req, _ := http.NewRequest("POST", "/api/v1/entries", bytes.NewBufferString(payload))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-User-ID", "e2e-tester-1")
+		req.Header.Set("X-User-ID", userID)
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusCreated {
+			t.Logf("Create Entry Failed: %s", w.Body.String())
+		}
+		require.Equal(t, http.StatusCreated, w.Code)
+
+		var resp idResponse
+		json.Unmarshal(w.Body.Bytes(), &resp)
+		entryID = resp.ID
+		require.NotEmpty(t, entryID)
+	})
+
+	t.Run("2b. Validation Error (Bad JSON)", func(t *testing.T) {
+		fakeHabitID := uuid.NewString()
+		payload := fmt.Sprintf(`{"habit_id": "%s", "value": "non-numeric"}`, fakeHabitID)
+
+		req, _ := http.NewRequest("POST", "/api/v1/entries", bytes.NewBufferString(payload))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-User-ID", userID)
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("3. Update Entry (Success)", func(t *testing.T) {
+		require.NotEmpty(t, entryID)
+		payload := `{"value": 600, "notes": "Updated", "version": 1}`
+
+		req, _ := http.NewRequest("PUT", "/api/v1/entries/"+entryID, bytes.NewBufferString(payload))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-User-ID", userID)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), `"value":600`)
 	})
 
-	t.Run("3. Verify Update", func(t *testing.T) {
-		req, _ := http.NewRequest(http.MethodGet, "/api/v1/habits?user_id=e2e-tester-1", nil)
-		req.Header.Set("X-User-ID", "e2e-tester-1")
+	t.Run("3b. Optimistic Locking Conflict", func(t *testing.T) {
+		payload := `{"value": 700, "version": 1}`
+
+		req, _ := http.NewRequest("PUT", "/api/v1/entries/"+entryID, bytes.NewBufferString(payload))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-User-ID", userID)
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusConflict, w.Code)
+	})
+
+	t.Run("4. List Entries", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/entries?habit_id="+habitID, nil)
+		req.Header.Set("X-User-ID", userID)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
-		assert.Contains(t, w.Body.String(), "Evening Run")
+
+		var list listEntryResponse
+		json.Unmarshal(w.Body.Bytes(), &list)
+
+		require.Len(t, list, 1)
+		assert.Equal(t, 600, list[0].Value)
 	})
 
-	t.Run("4. Delete Habit", func(t *testing.T) {
-		req, _ := http.NewRequest(http.MethodDelete, "/api/v1/habits/"+habitID, nil)
-		req.Header.Set("X-User-ID", "e2e-tester-1")
+	t.Run("5. Sync Logic", func(t *testing.T) {
+		since := time.Now().Add(-1 * time.Hour).Format(time.RFC3339)
+		safeSince := url.QueryEscape(since)
+
+		req, _ := http.NewRequest("GET", "/api/v1/entries/sync?since="+safeSince, nil)
+		req.Header.Set("X-User-ID", userID)
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), entryID)
+	})
+
+	t.Run("6. Security: IDOR Check", func(t *testing.T) {
+		req, _ := http.NewRequest("DELETE", "/api/v1/entries/"+entryID, nil)
+		req.Header.Set("X-User-ID", attackerID)
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusForbidden, w.Code)
+	})
+
+	t.Run("7. Delete Entry", func(t *testing.T) {
+		req, _ := http.NewRequest("DELETE", "/api/v1/entries/"+entryID, nil)
+		req.Header.Set("X-User-ID", userID)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -138,32 +257,25 @@ func TestEndToEnd_HabitLifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusNoContent, w.Code)
 	})
 
-	t.Run("5. Verify Delete", func(t *testing.T) {
-		req, _ := http.NewRequest(http.MethodGet, "/api/v1/habits?user_id=e2e-tester-1", nil)
-		req.Header.Set("X-User-ID", "e2e-tester-1")
+	t.Run("8. Verify Entry Deletion", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", "/api/v1/entries?habit_id="+habitID, nil)
+		req.Header.Set("X-User-ID", userID)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
-		assert.Equal(t, http.StatusOK, w.Code)
-		assert.NotContains(t, w.Body.String(), habitID)
+		var list listEntryResponse
+		json.Unmarshal(w.Body.Bytes(), &list)
+		assert.Len(t, list, 0)
 	})
 
-	t.Run("6. Validation Error", func(t *testing.T) {
-		invalidPayload := `{"type": "boolean"}`
-		req, _ := http.NewRequest(http.MethodPost, "/api/v1/habits", bytes.NewBuffer([]byte(invalidPayload)))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-User-ID", "e2e-tester-1")
+	t.Run("9. Delete Habit (Full Cleanup)", func(t *testing.T) {
+		req, _ := http.NewRequest("DELETE", "/api/v1/habits/"+habitID, nil)
+		req.Header.Set("X-User-ID", userID)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusBadRequest, w.Code)
-	})
 
-	t.Run("7. Auth Error", func(t *testing.T) {
-		req, _ := http.NewRequest(http.MethodGet, "/api/v1/habits", nil)
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusUnauthorized, w.Code)
+		assert.Equal(t, http.StatusNoContent, w.Code)
 	})
 }

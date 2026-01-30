@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url" // <--- Importante per il Sync test
+	"net/url"
 	"testing"
 	"time"
 
@@ -18,8 +18,6 @@ import (
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/domain"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/services"
 )
-
-// --- MOCKS (Invariati) ---
 
 type MockEntryRepo struct {
 	store map[string]*domain.HabitEntry
@@ -108,8 +106,6 @@ func (m *MockHabitRepoForEntry) GetChanges(ctx context.Context, u string, t time
 	return nil, nil
 }
 
-// --- SETUP ---
-
 func setupEntryRouter() (*gin.Engine, *MockEntryRepo, *MockHabitRepoForEntry) {
 	gin.SetMode(gin.TestMode)
 	entryRepo := NewMockEntryRepo()
@@ -122,13 +118,11 @@ func setupEntryRouter() (*gin.Engine, *MockEntryRepo, *MockHabitRepoForEntry) {
 	return r, entryRepo, habitRepo
 }
 
-// --- TESTS ---
-
 func TestCreateEntry(t *testing.T) {
 	t.Run("Success: 201 Created", func(t *testing.T) {
 		router, _, habitRepo := setupEntryRouter()
 		h, _ := domain.NewHabit("Gym", "user-1")
-		h.ID = "habit-1" // Forziamo ID per sicurezza
+		h.ID = "habit-1"
 		habitRepo.Create(context.Background(), h)
 
 		body := map[string]interface{}{
@@ -164,7 +158,7 @@ func TestCreateEntry(t *testing.T) {
 		jsonBody, _ := json.Marshal(body)
 
 		req, _ := http.NewRequest("POST", "/api/v1/entries", bytes.NewBuffer(jsonBody))
-		req.Header.Set("X-User-ID", "user-1") // Attacker
+		req.Header.Set("X-User-ID", "user-1")
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -180,7 +174,7 @@ func TestUpdateEntry(t *testing.T) {
 		habitRepo.Create(context.Background(), h)
 
 		e := domain.NewHabitEntry(h.ID, "user-1", time.Now(), 5)
-		e.ID = "entry-1" // FIX: Forziamo l'ID per evitare 404
+		e.ID = "entry-1"
 		e.Version = 1
 		entryRepo.Create(context.Background(), e)
 
@@ -203,7 +197,7 @@ func TestUpdateEntry(t *testing.T) {
 		habitRepo.Create(context.Background(), h)
 
 		e := domain.NewHabitEntry(h.ID, "user-1", time.Now(), 5)
-		e.ID = "entry-conflict" // FIX: Forziamo l'ID
+		e.ID = "entry-conflict"
 		e.Version = 2
 		entryRepo.Create(context.Background(), e)
 
@@ -227,7 +221,7 @@ func TestDeleteEntry(t *testing.T) {
 		habitRepo.Create(context.Background(), h)
 
 		e := domain.NewHabitEntry(h.ID, "user-1", time.Now(), 1)
-		e.ID = "entry-del" // FIX: Forziamo l'ID
+		e.ID = "entry-del"
 		entryRepo.Create(context.Background(), e)
 
 		req, _ := http.NewRequest("DELETE", "/api/v1/entries/"+e.ID, nil)
@@ -244,11 +238,11 @@ func TestDeleteEntry(t *testing.T) {
 		habitRepo.Create(context.Background(), h)
 
 		e := domain.NewHabitEntry(h.ID, "user-2", time.Now(), 1)
-		e.ID = "entry-other" // FIX: Forziamo l'ID
+		e.ID = "entry-other"
 		entryRepo.Create(context.Background(), e)
 
 		req, _ := http.NewRequest("DELETE", "/api/v1/entries/"+e.ID, nil)
-		req.Header.Set("X-User-ID", "user-1") // Hacker
+		req.Header.Set("X-User-ID", "user-1")
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusForbidden, w.Code)
@@ -316,7 +310,6 @@ func TestSyncEntries(t *testing.T) {
 
 	since := time.Now().Add(-1 * time.Hour).Format(time.RFC3339)
 
-	// FIX: URL Encode della data (gestisce i caratteri + e :)
 	safeSince := url.QueryEscape(since)
 
 	t.Run("Success: Returns only new entries", func(t *testing.T) {

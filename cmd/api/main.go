@@ -21,6 +21,8 @@ import (
 )
 
 func main() {
+	startTime := time.Now()
+
 	dbUser := os.Getenv("DB_USER")
 	dbPass := os.Getenv("DB_PASSWORD")
 	dbName := os.Getenv("DB_NAME")
@@ -57,9 +59,14 @@ func main() {
 
 	log.Println("Database connected successfully.")
 
-	repo := repository.NewPostgresHabitRepository(db)
-	svc := services.NewHabitService(repo)
-	habitHandler := adapterHTTP.NewHabitHandler(svc)
+	habitRepo := repository.NewPostgresHabitRepository(db)
+	entryRepo := repository.NewPostgresEntryRepository(db)
+
+	habitService := services.NewHabitService(habitRepo)
+	entryService := services.NewEntryService(entryRepo, habitRepo)
+
+	habitHandler := adapterHTTP.NewHabitHandler(habitService)
+	entryHandler := adapterHTTP.NewEntryHandler(entryService)
 
 	router := gin.Default()
 
@@ -74,8 +81,27 @@ func main() {
 		c.Next()
 	})
 
+	router.GET("/health", func(c *gin.Context) {
+		if err := db.Ping(); err != nil {
+			log.Printf("Health check failed: database unreachable: %v", err)
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "error", "database": "unreachable"})
+			return
+		}
+
+		uptime := time.Since(startTime).String()
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":   "ok",
+			"database": "connected",
+			"uptime":   uptime,
+		})
+	})
+
 	apiV1 := router.Group("/api/v1")
+
 	habitHandler.RegisterRoutes(apiV1)
+
+	entryHandler.RegisterRoutes(apiV1)
 
 	srv := &http.Server{
 		Addr:         ":" + serverPort,
