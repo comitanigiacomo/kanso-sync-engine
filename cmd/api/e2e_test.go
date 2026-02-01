@@ -24,6 +24,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
+// DTOs per il parsing delle risposte
 type idResponse struct {
 	ID string `json:"id"`
 }
@@ -36,6 +37,15 @@ type listEntryResponse []struct {
 type authResponse struct {
 	ID    string `json:"id"`
 	Email string `json:"email"`
+}
+
+// NUOVO: DTO per leggere la risposta del login nel test
+type loginResponse struct {
+	Token string `json:"token"`
+	User  struct {
+		ID    string `json:"id"`
+		Email string `json:"email"`
+	} `json:"user"`
 }
 
 func setupTestDB(t *testing.T) *sqlx.DB {
@@ -73,20 +83,27 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
+	// 1. Pulizia Totale
 	_, err := db.Exec("TRUNCATE TABLE habit_entries, habits, users CASCADE")
 	require.NoError(t, err, "Failed to truncate tables")
 
+	// 2. Inizializzazione Components (Wiring)
 	habitRepo := repository.NewPostgresHabitRepository(db)
 	entryRepo := repository.NewPostgresEntryRepository(db)
 	userRepo := repository.NewPostgresUserRepository(db.DB)
 
+	// FIX E2E: Inizializziamo il TokenService reale
+	tokenService := services.NewTokenService("test-secret-e2e", "kanso-e2e", 24*time.Hour)
+
 	habitSvc := services.NewHabitService(habitRepo)
 	entrySvc := services.NewEntryService(entryRepo, habitRepo)
-	authSvc := services.NewAuthService(userRepo)
+	authSvc := services.NewAuthService(userRepo, tokenService)
 
 	habitHandler := adapterHTTP.NewHabitHandler(habitSvc)
 	entryHandler := adapterHTTP.NewEntryHandler(entrySvc)
 	authHandler := adapterHTTP.NewAuthHandler(authSvc)
+
+	// 3. Router Setup
 	router := gin.Default()
 	startTime := time.Now()
 
@@ -109,6 +126,8 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 	existingUserID := uuid.NewString()
 	attackerID := uuid.NewString()
 
+	// --- INIZIO TEST SCENARIOS ---
+
 	t.Run("0. Health Check", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/health", nil)
 		w := httptest.NewRecorder()
@@ -119,9 +138,9 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 
 	t.Run("1. Register New User (Public API)", func(t *testing.T) {
 		payload := `{
-			"email": "new_user_e2e@kanso.app",
-			"password": "PasswordSicura123!"
-		}`
+            "email": "new_user_e2e@kanso.app",
+            "password": "PasswordSicura123!"
+        }`
 		req, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBufferString(payload))
 		req.Header.Set("Content-Type", "application/json")
 
@@ -138,6 +157,30 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 		assert.NotContains(t, w.Body.String(), "password")
 	})
 
+	// NUOVO STEP: Verifichiamo che il login funzioni davvero e ritorni il token
+	t.Run("1b. Login New User (Verify Token Generation)", func(t *testing.T) {
+		payload := `{
+            "email": "new_user_e2e@kanso.app",
+            "password": "PasswordSicura123!"
+        }`
+		req, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBufferString(payload))
+		req.Header.Set("Content-Type", "application/json")
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var resp loginResponse
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		require.NoError(t, err)
+
+		// Verifichiamo che ci sia il token e i dati utente corretti
+		assert.NotEmpty(t, resp.Token)
+		assert.Equal(t, "new_user_e2e@kanso.app", resp.User.Email)
+	})
+
+	// Fixture Manuale per i test successivi (Habit/Entry)
 	_, err = db.Exec(`
         INSERT INTO users (id, email, password_hash, created_at, updated_at) 
         VALUES ($1, $2, 'dummy_hash_for_e2e_test', NOW(), NOW())

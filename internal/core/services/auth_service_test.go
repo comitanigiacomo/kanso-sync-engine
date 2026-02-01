@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/domain"
 	"github.com/stretchr/testify/assert"
@@ -37,9 +38,15 @@ func (m *MockUserRepository) GetByID(ctx context.Context, id string) (*domain.Us
 func TestAuthService_Register(t *testing.T) {
 	t.Parallel()
 
-	t.Run("Success: Should register a valid user", func(t *testing.T) {
+	setup := func() (*AuthService, *MockUserRepository) {
 		mockRepo := new(MockUserRepository)
-		service := NewAuthService(mockRepo)
+		tokenService := NewTokenService("test-secret", "test-issuer", 1*time.Hour)
+		return NewAuthService(mockRepo, tokenService), mockRepo
+	}
+
+	t.Run("Success: Should register a valid user", func(t *testing.T) {
+		t.Parallel()
+		service, mockRepo := setup()
 		ctx := context.Background()
 
 		input := RegisterInput{
@@ -61,8 +68,8 @@ func TestAuthService_Register(t *testing.T) {
 	})
 
 	t.Run("Fail: Should return error for invalid email", func(t *testing.T) {
-		mockRepo := new(MockUserRepository)
-		service := NewAuthService(mockRepo)
+		t.Parallel()
+		service, mockRepo := setup()
 		ctx := context.Background()
 
 		input := RegisterInput{Email: "not-an-email", Password: "pass"}
@@ -76,8 +83,8 @@ func TestAuthService_Register(t *testing.T) {
 	})
 
 	t.Run("Fail: Should return error for short password", func(t *testing.T) {
-		mockRepo := new(MockUserRepository)
-		service := NewAuthService(mockRepo)
+		t.Parallel()
+		service, mockRepo := setup()
 		ctx := context.Background()
 
 		input := RegisterInput{Email: "valid@email.com", Password: "short"}
@@ -91,8 +98,8 @@ func TestAuthService_Register(t *testing.T) {
 	})
 
 	t.Run("Fail: Should propagate repository error (Duplicate Email)", func(t *testing.T) {
-		mockRepo := new(MockUserRepository)
-		service := NewAuthService(mockRepo)
+		t.Parallel()
+		service, mockRepo := setup()
 		ctx := context.Background()
 
 		input := RegisterInput{Email: "duplicate@email.com", Password: "StrongPassword123!"}
@@ -105,5 +112,76 @@ func TestAuthService_Register(t *testing.T) {
 		assert.Nil(t, user)
 
 		mockRepo.AssertExpectations(t)
+	})
+}
+
+func TestAuthService_Login(t *testing.T) {
+	t.Parallel()
+
+	setup := func() (*AuthService, *MockUserRepository, *TokenService) {
+		mockRepo := new(MockUserRepository)
+		tokenService := NewTokenService("test-secret", "test-issuer", 1*time.Hour)
+		return NewAuthService(mockRepo, tokenService), mockRepo, tokenService
+	}
+
+	getValidUser := func() *domain.User {
+		u, _ := domain.NewUser("user-123", "login@kanso.app")
+		_ = u.SetPassword("Password123!")
+		return u
+	}
+
+	t.Run("Success: Should login with correct credentials", func(t *testing.T) {
+		t.Parallel()
+		service, mockRepo, tokenService := setup()
+		ctx := context.Background()
+		validUser := getValidUser()
+
+		input := LoginInput{Email: "login@kanso.app", Password: "Password123!"}
+
+		mockRepo.On("GetByEmail", ctx, input.Email).Return(validUser, nil)
+
+		output, err := service.Login(ctx, input)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, output)
+		assert.NotEmpty(t, output.Token)
+		assert.Equal(t, validUser.Email, output.User.Email)
+
+		userID, err := tokenService.ValidateToken(output.Token)
+		assert.NoError(t, err)
+		assert.Equal(t, validUser.ID, userID)
+
+		mockRepo.AssertExpectations(t)
+	})
+
+	t.Run("Fail: Should return error on wrong password", func(t *testing.T) {
+		t.Parallel()
+		service, mockRepo, _ := setup()
+		ctx := context.Background()
+		validUser := getValidUser()
+
+		input := LoginInput{Email: "login@kanso.app", Password: "WrongPassword!"}
+
+		mockRepo.On("GetByEmail", ctx, input.Email).Return(validUser, nil)
+
+		output, err := service.Login(ctx, input)
+
+		assert.ErrorIs(t, err, domain.ErrInvalidCredentials)
+		assert.Nil(t, output)
+	})
+
+	t.Run("Fail: Should propagate error if user not found", func(t *testing.T) {
+		t.Parallel()
+		service, mockRepo, _ := setup()
+		ctx := context.Background()
+
+		input := LoginInput{Email: "ghost@kanso.app", Password: "Pwd"}
+
+		mockRepo.On("GetByEmail", ctx, input.Email).Return(nil, domain.ErrUserNotFound)
+
+		output, err := service.Login(ctx, input)
+
+		assert.ErrorIs(t, err, domain.ErrUserNotFound)
+		assert.Nil(t, output)
 	})
 }

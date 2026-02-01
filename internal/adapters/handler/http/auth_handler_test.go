@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/domain"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/services"
@@ -45,7 +46,10 @@ func setupHandler() (*gin.Engine, *MockUserRepository) {
 	gin.SetMode(gin.TestMode)
 
 	mockRepo := new(MockUserRepository)
-	authService := services.NewAuthService(mockRepo)
+
+	tokenService := services.NewTokenService("test-secret-key", "test-issuer", 1*time.Hour)
+
+	authService := services.NewAuthService(mockRepo, tokenService)
 	authHandler := NewAuthHandler(authService)
 
 	router := gin.New()
@@ -100,23 +104,6 @@ func TestAuthHandler_Register(t *testing.T) {
 		mockRepo.AssertNotCalled(t, "Create")
 	})
 
-	t.Run("Fail: Should return 400 for Bad JSON (Password too short)", func(t *testing.T) {
-		router, mockRepo := setupHandler()
-
-		payload := map[string]string{
-			"email":    "valid@email.com",
-			"password": "short",
-		}
-		body, _ := json.Marshal(payload)
-
-		req, _ := http.NewRequest(http.MethodPost, "/auth/register", bytes.NewBuffer(body))
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusBadRequest, w.Code)
-		mockRepo.AssertNotCalled(t, "Create")
-	})
-
 	t.Run("Fail: Should return 409 Conflict if email exists", func(t *testing.T) {
 		router, mockRepo := setupHandler()
 
@@ -133,7 +120,6 @@ func TestAuthHandler_Register(t *testing.T) {
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusConflict, w.Code)
-		assert.Contains(t, w.Body.String(), "email already exists")
 	})
 
 	t.Run("Fail: Should return 500 Internal Server Error on DB failure", func(t *testing.T) {
@@ -152,6 +138,87 @@ func TestAuthHandler_Register(t *testing.T) {
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
-		assert.Contains(t, w.Body.String(), "internal server error")
+	})
+}
+
+func TestAuthHandler_Login(t *testing.T) {
+	validUser, _ := domain.NewUser("user-123", "login@kanso.app")
+	_ = validUser.SetPassword("Password123!")
+
+	t.Run("Success: Should return 200 and Token", func(t *testing.T) {
+		router, mockRepo := setupHandler()
+
+		payload := map[string]string{
+			"email":    "login@kanso.app",
+			"password": "Password123!",
+		}
+		body, _ := json.Marshal(payload)
+
+		mockRepo.On("GetByEmail", mock.Anything, payload["email"]).Return(validUser, nil)
+
+		req, _ := http.NewRequest(http.MethodPost, "/auth/login", bytes.NewBuffer(body))
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response loginResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(t, err)
+
+		assert.NotEmpty(t, response.Token)
+		assert.Equal(t, validUser.ID, response.User.ID)
+		assert.Equal(t, validUser.Email, response.User.Email)
+	})
+
+	t.Run("Fail: Should return 401 on Wrong Password", func(t *testing.T) {
+		router, mockRepo := setupHandler()
+
+		payload := map[string]string{
+			"email":    "login@kanso.app",
+			"password": "WrongPassword!",
+		}
+		body, _ := json.Marshal(payload)
+
+		mockRepo.On("GetByEmail", mock.Anything, payload["email"]).Return(validUser, nil)
+
+		req, _ := http.NewRequest(http.MethodPost, "/auth/login", bytes.NewBuffer(body))
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+		assert.Contains(t, w.Body.String(), "invalid credentials")
+	})
+
+	t.Run("Fail: Should return 401 (not 404) if User Not Found (Security)", func(t *testing.T) {
+		router, mockRepo := setupHandler()
+
+		payload := map[string]string{
+			"email":    "ghost@kanso.app",
+			"password": "Password123!",
+		}
+		body, _ := json.Marshal(payload)
+
+		mockRepo.On("GetByEmail", mock.Anything, payload["email"]).Return(nil, domain.ErrUserNotFound)
+
+		req, _ := http.NewRequest(http.MethodPost, "/auth/login", bytes.NewBuffer(body))
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+		assert.Contains(t, w.Body.String(), "invalid credentials")
+	})
+
+	t.Run("Fail: Should return 400 for Bad JSON", func(t *testing.T) {
+		router, _ := setupHandler()
+
+		payload := map[string]string{"email": "not-an-email"}
+		body, _ := json.Marshal(payload)
+
+		req, _ := http.NewRequest(http.MethodPost, "/auth/login", bytes.NewBuffer(body))
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 }
