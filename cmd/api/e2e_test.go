@@ -33,6 +33,11 @@ type listEntryResponse []struct {
 	Value int    `json:"value"`
 }
 
+type authResponse struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+}
+
 func setupTestDB(t *testing.T) *sqlx.DB {
 	dbUser := os.Getenv("DB_USER")
 	if dbUser == "" {
@@ -68,21 +73,23 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	_, err := db.Exec("TRUNCATE TABLE habit_entries, habits CASCADE")
+	_, err := db.Exec("TRUNCATE TABLE habit_entries, habits, users CASCADE")
 	require.NoError(t, err, "Failed to truncate tables")
 
 	habitRepo := repository.NewPostgresHabitRepository(db)
 	entryRepo := repository.NewPostgresEntryRepository(db)
+	userRepo := repository.NewPostgresUserRepository(db.DB)
 
 	habitSvc := services.NewHabitService(habitRepo)
 	entrySvc := services.NewEntryService(entryRepo, habitRepo)
+	authSvc := services.NewAuthService(userRepo)
 
 	habitHandler := adapterHTTP.NewHabitHandler(habitSvc)
 	entryHandler := adapterHTTP.NewEntryHandler(entrySvc)
-
+	authHandler := adapterHTTP.NewAuthHandler(authSvc)
 	router := gin.Default()
-
 	startTime := time.Now()
+
 	router.GET("/health", func(c *gin.Context) {
 		if err := db.Ping(); err != nil {
 			c.JSON(503, gin.H{"status": "error"})
@@ -94,18 +101,13 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 	api := router.Group("/api/v1")
 	habitHandler.RegisterRoutes(api)
 	entryHandler.RegisterRoutes(api)
+	authHandler.RegisterRoutes(api)
 
 	var habitID string
 	var entryID string
-	userID := uuid.NewString()
-	attackerID := uuid.NewString()
 
-	_, err = db.Exec(`
-		INSERT INTO users (id, email, created_at, updated_at) 
-		VALUES ($1, $2, NOW(), NOW())
-		ON CONFLICT (id) DO NOTHING`,
-		userID, "tester@kanso.app")
-	require.NoError(t, err, "Failed to create test user fixture. Check 'users' table schema.")
+	existingUserID := uuid.NewString()
+	attackerID := uuid.NewString()
 
 	t.Run("0. Health Check", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/health", nil)
@@ -115,17 +117,45 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 		assert.Contains(t, w.Body.String(), "uptime")
 	})
 
-	t.Run("1. Create Habit", func(t *testing.T) {
+	t.Run("1. Register New User (Public API)", func(t *testing.T) {
 		payload := `{
-			"title": "Drink Water",
-			"type": "numeric",
-			"target_value": 2000,
-			"unit": "ml",
-			"frequency_type": "daily"
+			"email": "new_user_e2e@kanso.app",
+			"password": "PasswordSicura123!"
 		}`
+		req, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBufferString(payload))
+		req.Header.Set("Content-Type", "application/json")
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusCreated, w.Code)
+
+		var resp authResponse
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		require.NoError(t, err)
+		assert.Equal(t, "new_user_e2e@kanso.app", resp.Email)
+		assert.NotEmpty(t, resp.ID)
+		assert.NotContains(t, w.Body.String(), "password")
+	})
+
+	_, err = db.Exec(`
+        INSERT INTO users (id, email, password_hash, created_at, updated_at) 
+        VALUES ($1, $2, 'dummy_hash_for_e2e_test', NOW(), NOW())
+        ON CONFLICT (id) DO NOTHING`,
+		existingUserID, "tester@kanso.app")
+	require.NoError(t, err, "Failed to create test user fixture.")
+
+	t.Run("2. Create Habit", func(t *testing.T) {
+		payload := `{
+            "title": "Drink Water",
+            "type": "numeric",
+            "target_value": 2000,
+            "unit": "ml",
+            "frequency_type": "daily"
+        }`
 		req, _ := http.NewRequest("POST", "/api/v1/habits", bytes.NewBufferString(payload))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-User-ID", userID)
+		req.Header.Set("X-User-ID", existingUserID)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -138,19 +168,19 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 		require.NotEmpty(t, habitID)
 	})
 
-	t.Run("2. Create Entry", func(t *testing.T) {
+	t.Run("3. Create Entry", func(t *testing.T) {
 		require.NotEmpty(t, habitID)
 
 		payload := fmt.Sprintf(`{
-			"habit_id": "%s",
-			"completion_date": "%s",
-			"value": 500,
-			"notes": "Morning glass"
-		}`, habitID, time.Now().Format(time.RFC3339))
+            "habit_id": "%s",
+            "completion_date": "%s",
+            "value": 500,
+            "notes": "Morning glass"
+        }`, habitID, time.Now().Format(time.RFC3339))
 
 		req, _ := http.NewRequest("POST", "/api/v1/entries", bytes.NewBufferString(payload))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-User-ID", userID)
+		req.Header.Set("X-User-ID", existingUserID)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -166,26 +196,26 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 		require.NotEmpty(t, entryID)
 	})
 
-	t.Run("2b. Validation Error (Bad JSON)", func(t *testing.T) {
+	t.Run("3b. Validation Error (Bad JSON)", func(t *testing.T) {
 		fakeHabitID := uuid.NewString()
 		payload := fmt.Sprintf(`{"habit_id": "%s", "value": "non-numeric"}`, fakeHabitID)
 
 		req, _ := http.NewRequest("POST", "/api/v1/entries", bytes.NewBufferString(payload))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-User-ID", userID)
+		req.Header.Set("X-User-ID", existingUserID)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
-	t.Run("3. Update Entry (Success)", func(t *testing.T) {
+	t.Run("4. Update Entry (Success)", func(t *testing.T) {
 		require.NotEmpty(t, entryID)
 		payload := `{"value": 600, "notes": "Updated", "version": 1}`
 
 		req, _ := http.NewRequest("PUT", "/api/v1/entries/"+entryID, bytes.NewBufferString(payload))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-User-ID", userID)
+		req.Header.Set("X-User-ID", existingUserID)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -194,12 +224,12 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 		assert.Contains(t, w.Body.String(), `"value":600`)
 	})
 
-	t.Run("3b. Optimistic Locking Conflict", func(t *testing.T) {
+	t.Run("4b. Optimistic Locking Conflict", func(t *testing.T) {
 		payload := `{"value": 700, "version": 1}`
 
 		req, _ := http.NewRequest("PUT", "/api/v1/entries/"+entryID, bytes.NewBufferString(payload))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-User-ID", userID)
+		req.Header.Set("X-User-ID", existingUserID)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -207,9 +237,9 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusConflict, w.Code)
 	})
 
-	t.Run("4. List Entries", func(t *testing.T) {
+	t.Run("5. List Entries", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/api/v1/entries?habit_id="+habitID, nil)
-		req.Header.Set("X-User-ID", userID)
+		req.Header.Set("X-User-ID", existingUserID)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -223,12 +253,12 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 		assert.Equal(t, 600, list[0].Value)
 	})
 
-	t.Run("5. Sync Logic", func(t *testing.T) {
+	t.Run("6. Sync Logic", func(t *testing.T) {
 		since := time.Now().Add(-1 * time.Hour).Format(time.RFC3339)
 		safeSince := url.QueryEscape(since)
 
 		req, _ := http.NewRequest("GET", "/api/v1/entries/sync?since="+safeSince, nil)
-		req.Header.Set("X-User-ID", userID)
+		req.Header.Set("X-User-ID", existingUserID)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -237,7 +267,7 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 		assert.Contains(t, w.Body.String(), entryID)
 	})
 
-	t.Run("6. Security: IDOR Check", func(t *testing.T) {
+	t.Run("7. Security: IDOR Check", func(t *testing.T) {
 		req, _ := http.NewRequest("DELETE", "/api/v1/entries/"+entryID, nil)
 		req.Header.Set("X-User-ID", attackerID)
 
@@ -247,9 +277,9 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusForbidden, w.Code)
 	})
 
-	t.Run("7. Delete Entry", func(t *testing.T) {
+	t.Run("8. Delete Entry", func(t *testing.T) {
 		req, _ := http.NewRequest("DELETE", "/api/v1/entries/"+entryID, nil)
-		req.Header.Set("X-User-ID", userID)
+		req.Header.Set("X-User-ID", existingUserID)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -257,9 +287,9 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusNoContent, w.Code)
 	})
 
-	t.Run("8. Verify Entry Deletion", func(t *testing.T) {
+	t.Run("9. Verify Entry Deletion", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/api/v1/entries?habit_id="+habitID, nil)
-		req.Header.Set("X-User-ID", userID)
+		req.Header.Set("X-User-ID", existingUserID)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -269,9 +299,9 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 		assert.Len(t, list, 0)
 	})
 
-	t.Run("9. Delete Habit (Full Cleanup)", func(t *testing.T) {
+	t.Run("10. Delete Habit (Full Cleanup)", func(t *testing.T) {
 		req, _ := http.NewRequest("DELETE", "/api/v1/habits/"+habitID, nil)
-		req.Header.Set("X-User-ID", userID)
+		req.Header.Set("X-User-ID", existingUserID)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)

@@ -7,20 +7,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/domain"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/domain"
 )
 
 func setupTest(t *testing.T) (*PostgresEntryRepository, *sqlx.DB, func()) {
 	t.Helper()
 
 	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable",
-		getEnv("DB_USER", "postgres"),
+		getEnv("DB_USER", "kanso_user"),
 		getEnv("DB_PASSWORD", "secret"),
 		getEnv("DB_HOST", "localhost"),
 		getEnv("DB_PORT", "5432"),
@@ -29,8 +28,6 @@ func setupTest(t *testing.T) (*PostgresEntryRepository, *sqlx.DB, func()) {
 
 	db, err := sqlx.Connect("postgres", dsn)
 	require.NoError(t, err, "Database connection failed")
-
-	ensureSchema(t, db)
 
 	db.MustExec("TRUNCATE TABLE habit_entries, habits, users CASCADE")
 
@@ -48,41 +45,6 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-func ensureSchema(t *testing.T, db *sqlx.DB) {
-	schema := `
-	CREATE TABLE IF NOT EXISTS users (
-		id UUID PRIMARY KEY, 
-		email TEXT, 
-		created_at TIMESTAMP, 
-		updated_at TIMESTAMP
-	);
-	CREATE TABLE IF NOT EXISTS habits (
-		id UUID PRIMARY KEY, 
-		user_id UUID REFERENCES users(id), 
-		title TEXT NOT NULL, 
-		type TEXT NOT NULL, 
-		frequency_type TEXT NOT NULL, 
-		start_date TIMESTAMP NOT NULL,
-		version INT DEFAULT 1, 
-		created_at TIMESTAMP, 
-		updated_at TIMESTAMP, 
-		deleted_at TIMESTAMP
-	);
-	CREATE TABLE IF NOT EXISTS habit_entries (
-		id UUID PRIMARY KEY, 
-		habit_id UUID NOT NULL REFERENCES habits(id),
-		user_id UUID NOT NULL REFERENCES users(id), 
-		completion_date TIMESTAMP NOT NULL,
-		value INT, 
-		notes TEXT, 
-		version INT DEFAULT 1,
-		created_at TIMESTAMP, 
-		updated_at TIMESTAMP, 
-		deleted_at TIMESTAMP
-	);`
-	db.MustExec(schema)
-}
-
 func TestPostgresEntryRepository_Integration(t *testing.T) {
 	repo, db, teardown := setupTest(t)
 	defer teardown()
@@ -93,9 +55,13 @@ func TestPostgresEntryRepository_Integration(t *testing.T) {
 
 	now := time.Now().UTC().Truncate(time.Second)
 
-	db.MustExec("INSERT INTO users (id, email, created_at, updated_at) VALUES ($1, $2, $3, $3)", uid, "senior@test.com", now)
+	db.MustExec(`
+		INSERT INTO users (id, email, password_hash, created_at, updated_at) 
+		VALUES ($1, $2, 'dummy_hash_per_test', $3, $3)
+	`, uid, "senior@test.com", now)
+
 	db.MustExec(`INSERT INTO habits (id, user_id, title, type, frequency_type, start_date, created_at, updated_at) 
-		VALUES ($1, $2, $3, $4, $5, $6, $6, $6)`, hid, uid, "Habit Test", "boolean", "daily", now)
+        VALUES ($1, $2, $3, $4, $5, $6, $6, $6)`, hid, uid, "Habit Test", "boolean", "daily", now)
 
 	t.Run("Full CRUD Lifecycle & Soft Delete", func(t *testing.T) {
 		entryID := uuid.NewString()
@@ -154,7 +120,7 @@ func TestPostgresEntryRepository_Integration(t *testing.T) {
 	t.Run("ListByHabitID: Filtering and Range", func(t *testing.T) {
 		localHid := uuid.NewString()
 		db.MustExec(`INSERT INTO habits (id, user_id, title, type, frequency_type, start_date, created_at, updated_at) 
-			VALUES ($1, $2, $3, $4, $5, $6, $6, $6)`, localHid, uid, "Isolated Habit", "boolean", "daily", now)
+            VALUES ($1, $2, $3, $4, $5, $6, $6, $6)`, localHid, uid, "Isolated Habit", "boolean", "daily", now)
 
 		testDates := []time.Time{
 			now.AddDate(0, 0, -5),
