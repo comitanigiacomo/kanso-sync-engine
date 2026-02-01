@@ -29,6 +29,19 @@ type userResponse struct {
 	Email string `json:"email"`
 }
 
+type loginRequest struct {
+	Email    string `json:"email" binding:"required,email"`
+	Password string `json:"password" binding:"required"`
+}
+
+type loginResponse struct {
+	Token string `json:"token"`
+	User  struct {
+		ID    string `json:"id"`
+		Email string `json:"email"`
+	} `json:"user"`
+}
+
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req registerRequest
 
@@ -64,9 +77,47 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	})
 }
 
+func (h *AuthHandler) Login(c *gin.Context) {
+	var req loginRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	input := services.LoginInput{
+		Email:    req.Email,
+		Password: req.Password,
+	}
+
+	output, err := h.service.Login(c.Request.Context(), input)
+	if err != nil {
+		switch {
+		case errors.Is(err, domain.ErrInvalidCredentials), errors.Is(err, domain.ErrUserNotFound):
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+		default:
+			_ = c.Error(err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, loginResponse{
+		Token: output.Token,
+		User: struct {
+			ID    string `json:"id"`
+			Email string `json:"email"`
+		}{
+			ID:    output.User.ID,
+			Email: output.User.Email,
+		},
+	})
+}
+
 func (h *AuthHandler) RegisterRoutes(router *gin.RouterGroup) {
 	authGroup := router.Group("/auth")
 	{
 		authGroup.POST("/register", h.Register)
+		authGroup.POST("/login", h.Login)
 	}
 }
