@@ -9,12 +9,14 @@ import (
 )
 
 type AuthService struct {
-	repo domain.UserRepository
+	repo         domain.UserRepository
+	tokenService *TokenService
 }
 
-func NewAuthService(repo domain.UserRepository) *AuthService {
+func NewAuthService(repo domain.UserRepository, tokenService *TokenService) *AuthService {
 	return &AuthService{
-		repo: repo,
+		repo:         repo,
+		tokenService: tokenService,
 	}
 }
 
@@ -39,4 +41,35 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*domai
 	}
 
 	return user, nil
+}
+
+type LoginInput struct {
+	Email    string
+	Password string
+}
+
+type LoginOutput struct {
+	Token string
+	User  *domain.User
+}
+
+func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginOutput, error) {
+	user, err := s.repo.GetByEmail(ctx, input.Email)
+	if err != nil {
+		return nil, fmt.Errorf("auth service: user lookup failed: %w", err)
+	}
+
+	if err := user.CheckPassword(input.Password); err != nil {
+		return nil, domain.ErrInvalidCredentials
+	}
+
+	token, err := s.tokenService.GenerateToken(user.ID)
+	if err != nil {
+		return nil, fmt.Errorf("auth service: failed to generate token: %w", err)
+	}
+
+	return &LoginOutput{
+		Token: token,
+		User:  user,
+	}, nil
 }
