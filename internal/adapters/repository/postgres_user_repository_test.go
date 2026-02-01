@@ -17,8 +17,6 @@ import (
 var testDB *sql.DB
 
 func TestMain(m *testing.M) {
-	// SENIOR FIX 1: Configurazione Dinamica
-	// Leggiamo dall'ambiente (per la CI/CD), usiamo default per locale.
 	dbHost := os.Getenv("DB_HOST")
 	if dbHost == "" {
 		dbHost = "localhost"
@@ -53,7 +51,6 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Cannot connect to DB: %v", err)
 	}
 
-	// Retry mechanism per CI/CD lenti (Opzionale ma consigliato)
 	for i := 0; i < 5; i++ {
 		if err := testDB.Ping(); err == nil {
 			break
@@ -71,7 +68,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestPostgresUserRepository_Create(t *testing.T) {
-	t.Parallel() // SENIOR FIX 2: Esecuzione Parallela
+	t.Parallel()
 
 	repo := NewPostgresUserRepository(testDB)
 	ctx := context.Background()
@@ -79,7 +76,6 @@ func TestPostgresUserRepository_Create(t *testing.T) {
 	t.Run("Should create a user successfully", func(t *testing.T) {
 		t.Parallel()
 
-		// Usiamo UUID per evitare collisioni nei test paralleli
 		email := fmt.Sprintf("test_%s@example.com", uuid.NewString())
 		id := uuid.NewString()
 
@@ -94,7 +90,6 @@ func TestPostgresUserRepository_Create(t *testing.T) {
 			t.Errorf("Expected no error, got %v", err)
 		}
 
-		// Verifica lettura
 		savedUser, err := repo.GetByEmail(ctx, user.Email)
 		if err != nil {
 			t.Fatalf("Could not retrieve saved user: %v", err)
@@ -103,7 +98,6 @@ func TestPostgresUserRepository_Create(t *testing.T) {
 		if savedUser.ID != user.ID {
 			t.Errorf("Expected ID %s, got %s", user.ID, savedUser.ID)
 		}
-		// Verifica che i timestamp siano stati salvati (non zero)
 		if savedUser.CreatedAt.IsZero() || savedUser.UpdatedAt.IsZero() {
 			t.Error("Timestamps should not be zero")
 		}
@@ -114,11 +108,12 @@ func TestPostgresUserRepository_Create(t *testing.T) {
 
 		email := fmt.Sprintf("duplicate_%s@example.com", uuid.NewString())
 		user1, _ := domain.NewUser(uuid.NewString(), email)
-		_ = user1.SetPassword("pass1")
+
+		_ = user1.SetPassword("passwordSuperSicura1")
 		_ = repo.Create(ctx, user1)
 
-		user2, _ := domain.NewUser(uuid.NewString(), email) // ID diverso, stessa email
-		_ = user2.SetPassword("pass2")
+		user2, _ := domain.NewUser(uuid.NewString(), email)
+		_ = user2.SetPassword("passwordSuperSicura2")
 
 		err := repo.Create(ctx, user2)
 
@@ -128,7 +123,6 @@ func TestPostgresUserRepository_Create(t *testing.T) {
 	})
 }
 
-// SENIOR FIX 3: Aggiunto test mancante per GetByID
 func TestPostgresUserRepository_GetByID(t *testing.T) {
 	t.Parallel()
 	repo := NewPostgresUserRepository(testDB)
@@ -137,17 +131,19 @@ func TestPostgresUserRepository_GetByID(t *testing.T) {
 	t.Run("Should retrieve existing user by ID", func(t *testing.T) {
 		t.Parallel()
 
-		// Arrange
 		email := fmt.Sprintf("id_test_%s@example.com", uuid.NewString())
 		id := uuid.NewString()
 		user, _ := domain.NewUser(id, email)
-		_ = user.SetPassword("pass123")
-		_ = repo.Create(ctx, user)
 
-		// Act
+		_ = user.SetPassword("passwordLunga123")
+
+		err := repo.Create(ctx, user)
+		if err != nil {
+			t.Fatalf("Setup failed: %v", err)
+		}
+
 		foundUser, err := repo.GetByID(ctx, id)
 
-		// Assert
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -158,7 +154,7 @@ func TestPostgresUserRepository_GetByID(t *testing.T) {
 
 	t.Run("Should return ErrUserNotFound for non-existent ID", func(t *testing.T) {
 		t.Parallel()
-		_, err := repo.GetByID(ctx, uuid.NewString()) // ID random mai salvato
+		_, err := repo.GetByID(ctx, uuid.NewString())
 
 		if err != domain.ErrUserNotFound {
 			t.Errorf("Expected ErrUserNotFound, got %v", err)
@@ -174,17 +170,19 @@ func TestPostgresUserRepository_GetByEmail(t *testing.T) {
 	t.Run("Should retrieve existing user by Email", func(t *testing.T) {
 		t.Parallel()
 
-		// Arrange
 		email := fmt.Sprintf("email_test_%s@example.com", uuid.NewString())
 		id := uuid.NewString()
 		user, _ := domain.NewUser(id, email)
-		_ = user.SetPassword("pass123")
-		_ = repo.Create(ctx, user)
 
-		// Act
+		_ = user.SetPassword("Longpassword123")
+
+		err := repo.Create(ctx, user)
+		if err != nil {
+			t.Fatalf("Setup failed: %v", err)
+		}
+
 		foundUser, err := repo.GetByEmail(ctx, email)
 
-		// Assert
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}

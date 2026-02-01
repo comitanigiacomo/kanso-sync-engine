@@ -101,9 +101,9 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 	attackerID := uuid.NewString()
 
 	_, err = db.Exec(`
-		INSERT INTO users (id, email, created_at, updated_at) 
-		VALUES ($1, $2, NOW(), NOW())
-		ON CONFLICT (id) DO NOTHING`,
+    INSERT INTO users (id, email, password_hash, created_at, updated_at) 
+    VALUES ($1, $2, 'dummy_hash_for_e2e_test', NOW(), NOW())
+    ON CONFLICT (id) DO NOTHING`,
 		userID, "tester@kanso.app")
 	require.NoError(t, err, "Failed to create test user fixture. Check 'users' table schema.")
 
