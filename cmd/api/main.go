@@ -26,20 +26,13 @@ func main() {
 	dbUser := os.Getenv("DB_USER")
 	dbPass := os.Getenv("DB_PASSWORD")
 	dbName := os.Getenv("DB_NAME")
-
 	dbHost := os.Getenv("DB_HOST")
 	if dbHost == "" {
 		dbHost = "localhost"
 	}
-
 	dbPort := os.Getenv("DB_PORT")
 	if dbPort == "" {
 		dbPort = "5432"
-	}
-
-	serverPort := os.Getenv("PORT")
-	if serverPort == "" {
-		serverPort = "8080"
 	}
 
 	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable",
@@ -59,17 +52,44 @@ func main() {
 
 	log.Println("Database connected successfully.")
 
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Println("WARNING: JWT_SECRET not set, using default unsafe key for development")
+		jwtSecret = "change-me-in-production-super-secret-key"
+	}
+
+	jwtIssuer := os.Getenv("JWT_ISSUER")
+	if jwtIssuer == "" {
+		jwtIssuer = "kanso-api"
+	}
+
+	jwtExpStr := os.Getenv("JWT_EXPIRATION")
+	if jwtExpStr == "" {
+		jwtExpStr = "24h"
+	}
+
+	tokenDuration, err := time.ParseDuration(jwtExpStr)
+	if err != nil {
+		log.Fatalf("Critical: Invalid JWT_EXPIRATION format (use '24h', '60m', etc): %v", err)
+	}
+
 	habitRepo := repository.NewPostgresHabitRepository(db)
 	entryRepo := repository.NewPostgresEntryRepository(db)
 	userRepo := repository.NewPostgresUserRepository(db.DB)
 
+	tokenService := services.NewTokenService(jwtSecret, jwtIssuer, tokenDuration)
+
 	habitService := services.NewHabitService(habitRepo)
 	entryService := services.NewEntryService(entryRepo, habitRepo)
-	authService := services.NewAuthService(userRepo)
-
+	authService := services.NewAuthService(userRepo, tokenService)
 	habitHandler := adapterHTTP.NewHabitHandler(habitService)
 	entryHandler := adapterHTTP.NewEntryHandler(entryService)
 	authHandler := adapterHTTP.NewAuthHandler(authService)
+
+	serverPort := os.Getenv("PORT")
+	if serverPort == "" {
+		serverPort = "8080"
+	}
 
 	router := gin.Default()
 
@@ -102,7 +122,6 @@ func main() {
 	})
 
 	apiV1 := router.Group("/api/v1")
-
 	habitHandler.RegisterRoutes(apiV1)
 	entryHandler.RegisterRoutes(apiV1)
 	authHandler.RegisterRoutes(apiV1)
