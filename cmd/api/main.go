@@ -61,12 +61,15 @@ func main() {
 
 	habitRepo := repository.NewPostgresHabitRepository(db)
 	entryRepo := repository.NewPostgresEntryRepository(db)
+	userRepo := repository.NewPostgresUserRepository(db.DB)
 
 	habitService := services.NewHabitService(habitRepo)
 	entryService := services.NewEntryService(entryRepo, habitRepo)
+	authService := services.NewAuthService(userRepo)
 
 	habitHandler := adapterHTTP.NewHabitHandler(habitService)
 	entryHandler := adapterHTTP.NewEntryHandler(entryService)
+	authHandler := adapterHTTP.NewAuthHandler(authService)
 
 	router := gin.Default()
 
@@ -93,6 +96,7 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{
 			"status":   "ok",
 			"database": "connected",
+			"system":   "kanso-sync-engine",
 			"uptime":   uptime,
 		})
 	})
@@ -100,8 +104,8 @@ func main() {
 	apiV1 := router.Group("/api/v1")
 
 	habitHandler.RegisterRoutes(apiV1)
-
 	entryHandler.RegisterRoutes(apiV1)
+	authHandler.RegisterRoutes(apiV1)
 
 	srv := &http.Server{
 		Addr:         ":" + serverPort,
