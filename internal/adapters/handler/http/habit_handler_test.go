@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	adapterHTTP "github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/handler/http"
+	"github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/handler/http/middleware"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/domain"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/services"
 )
@@ -99,6 +100,15 @@ func setupRouter() (*gin.Engine, *MockRepo) {
 	handler := adapterHTTP.NewHabitHandler(svc)
 
 	r := gin.New()
+
+	r.Use(func(c *gin.Context) {
+		userID := c.GetHeader("X-User-ID")
+		if userID != "" {
+			c.Set(middleware.ContextUserIDKey, userID)
+		}
+		c.Next()
+	})
+
 	handler.RegisterRoutes(r.Group("/api/v1"))
 	return r, repo
 }
@@ -121,13 +131,13 @@ func TestCreateHabit(t *testing.T) {
 		assert.Contains(t, w.Body.String(), `"id":`)
 	})
 
-	t.Run("Fail: 401 Unauthorized (Missing Header)", func(t *testing.T) {
+	t.Run("Fail: 500 Context Missing (Missing Header)", func(t *testing.T) {
 		router, _ := setupRouter()
 		body := `{"title": "Gym"}`
 		req, _ := http.NewRequest("POST", "/api/v1/habits", bytes.NewBufferString(body))
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusUnauthorized, w.Code)
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
 
 	t.Run("Fail: 400 Bad Request", func(t *testing.T) {

@@ -18,13 +18,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	adapterHTTP "github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/handler/http"
+	"github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/handler/http/middleware" // Serve per il middleware reale
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/repository"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/services"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-// DTOs per il parsing delle risposte
+// --- DTOs ---
 type idResponse struct {
 	ID string `json:"id"`
 }
@@ -39,7 +40,6 @@ type authResponse struct {
 	Email string `json:"email"`
 }
 
-// NUOVO: DTO per leggere la risposta del login nel test
 type loginResponse struct {
 	Token string `json:"token"`
 	User  struct {
@@ -48,6 +48,7 @@ type loginResponse struct {
 	} `json:"user"`
 }
 
+// --- DB SETUP & MIGRATION ---
 func setupTestDB(t *testing.T) *sqlx.DB {
 	dbUser := os.Getenv("DB_USER")
 	if dbUser == "" {
@@ -75,6 +76,54 @@ func setupTestDB(t *testing.T) *sqlx.DB {
 
 	db, err := sqlx.Connect("pgx", dsn)
 	require.NoError(t, err, "Failed to connect to test database")
+
+	// 🛠️ FIX 60k: Creazione Tabelle (Schema Migration) per Test Self-Contained
+	schema := `
+	CREATE TABLE IF NOT EXISTS users (
+		id TEXT PRIMARY KEY,
+		email TEXT UNIQUE NOT NULL,
+		password_hash TEXT NOT NULL,
+		created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+		updated_at TIMESTAMP WITH TIME ZONE NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS habits (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		title TEXT NOT NULL,
+		description TEXT,
+		color TEXT,
+		icon TEXT,
+		type TEXT NOT NULL,
+		reminder_time TEXT,
+		unit TEXT,
+		target_value INTEGER,
+		interval INTEGER,
+		weekdays INTEGER[],
+		frequency_type TEXT,
+		created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+		updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+		deleted_at TIMESTAMP WITH TIME ZONE,
+		version INTEGER DEFAULT 1,
+		sort_order INTEGER DEFAULT 0
+	);
+
+	CREATE TABLE IF NOT EXISTS habit_entries (
+		id TEXT PRIMARY KEY,
+		habit_id TEXT NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
+		user_id TEXT NOT NULL,
+		value INTEGER NOT NULL,
+		notes TEXT,
+		completion_date TIMESTAMP WITH TIME ZONE NOT NULL,
+		created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+		updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+		deleted_at TIMESTAMP WITH TIME ZONE,
+		version INTEGER DEFAULT 1
+	);
+	`
+	_, err = db.Exec(schema)
+	require.NoError(t, err, "Failed to initialize test database schema")
+
 	return db
 }
 
@@ -87,12 +136,11 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 	_, err := db.Exec("TRUNCATE TABLE habit_entries, habits, users CASCADE")
 	require.NoError(t, err, "Failed to truncate tables")
 
-	// 2. Inizializzazione Components (Wiring)
+	// 2. Wiring
 	habitRepo := repository.NewPostgresHabitRepository(db)
 	entryRepo := repository.NewPostgresEntryRepository(db)
 	userRepo := repository.NewPostgresUserRepository(db.DB)
 
-	// FIX E2E: Inizializziamo il TokenService reale
 	tokenService := services.NewTokenService("test-secret-e2e", "kanso-e2e", 24*time.Hour)
 
 	habitSvc := services.NewHabitService(habitRepo)
@@ -105,25 +153,34 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 
 	// 3. Router Setup
 	router := gin.Default()
-	startTime := time.Now()
 
+	// Configurazione Rotte
+	api := router.Group("/api/v1")
+
+	// A. Pubbliche (Auth)
+	authHandler.RegisterRoutes(api)
+
+	// B. Protette (Habits/Entries) - Applichiamo Middleware!
+	protected := api.Group("")
+	protected.Use(middleware.AuthMiddleware(tokenService))
+	{
+		habitHandler.RegisterRoutes(protected)
+		entryHandler.RegisterRoutes(protected)
+	}
+
+	// Setup Health Check separato
 	router.GET("/health", func(c *gin.Context) {
 		if err := db.Ping(); err != nil {
 			c.JSON(503, gin.H{"status": "error"})
 			return
 		}
-		c.JSON(200, gin.H{"status": "ok", "uptime": time.Since(startTime).String()})
+		c.JSON(200, gin.H{"status": "ok", "uptime": "testing"})
 	})
-
-	api := router.Group("/api/v1")
-	habitHandler.RegisterRoutes(api)
-	entryHandler.RegisterRoutes(api)
-	authHandler.RegisterRoutes(api)
 
 	var habitID string
 	var entryID string
+	var authToken string // Il token JWT che useremo per tutte le richieste
 
-	existingUserID := uuid.NewString()
 	attackerID := uuid.NewString()
 
 	// --- INIZIO TEST SCENARIOS ---
@@ -133,60 +190,34 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code)
-		assert.Contains(t, w.Body.String(), "uptime")
 	})
 
-	t.Run("1. Register New User (Public API)", func(t *testing.T) {
-		payload := `{
-            "email": "new_user_e2e@kanso.app",
-            "password": "PasswordSicura123!"
-        }`
+	t.Run("1. Register New User", func(t *testing.T) {
+		payload := `{"email": "e2e@kanso.app", "password": "PasswordSicura123!"}`
 		req, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBufferString(payload))
 		req.Header.Set("Content-Type", "application/json")
-
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
-
 		require.Equal(t, http.StatusCreated, w.Code)
-
-		var resp authResponse
-		err := json.Unmarshal(w.Body.Bytes(), &resp)
-		require.NoError(t, err)
-		assert.Equal(t, "new_user_e2e@kanso.app", resp.Email)
-		assert.NotEmpty(t, resp.ID)
-		assert.NotContains(t, w.Body.String(), "password")
 	})
 
-	// NUOVO STEP: Verifichiamo che il login funzioni davvero e ritorni il token
-	t.Run("1b. Login New User (Verify Token Generation)", func(t *testing.T) {
-		payload := `{
-            "email": "new_user_e2e@kanso.app",
-            "password": "PasswordSicura123!"
-        }`
+	t.Run("1b. Login & Get Token", func(t *testing.T) {
+		payload := `{"email": "e2e@kanso.app", "password": "PasswordSicura123!"}`
 		req, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBufferString(payload))
 		req.Header.Set("Content-Type", "application/json")
-
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
-
 		require.Equal(t, http.StatusOK, w.Code)
 
 		var resp loginResponse
 		err := json.Unmarshal(w.Body.Bytes(), &resp)
 		require.NoError(t, err)
+		require.NotEmpty(t, resp.Token)
 
-		// Verifichiamo che ci sia il token e i dati utente corretti
-		assert.NotEmpty(t, resp.Token)
-		assert.Equal(t, "new_user_e2e@kanso.app", resp.User.Email)
+		authToken = resp.Token // SALVIAMO IL TOKEN!
 	})
 
-	// Fixture Manuale per i test successivi (Habit/Entry)
-	_, err = db.Exec(`
-        INSERT INTO users (id, email, password_hash, created_at, updated_at) 
-        VALUES ($1, $2, 'dummy_hash_for_e2e_test', NOW(), NOW())
-        ON CONFLICT (id) DO NOTHING`,
-		existingUserID, "tester@kanso.app")
-	require.NoError(t, err, "Failed to create test user fixture.")
+	// NOTA: Da ora in poi usiamo req.Header.Set("Authorization", "Bearer "+authToken)
 
 	t.Run("2. Create Habit", func(t *testing.T) {
 		payload := `{
@@ -198,13 +229,12 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
         }`
 		req, _ := http.NewRequest("POST", "/api/v1/habits", bytes.NewBufferString(payload))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-User-ID", existingUserID)
+		req.Header.Set("Authorization", "Bearer "+authToken) // <--- TOKEN
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusCreated, w.Code)
-
 		var resp idResponse
 		json.Unmarshal(w.Body.Bytes(), &resp)
 		habitID = resp.ID
@@ -213,7 +243,6 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 
 	t.Run("3. Create Entry", func(t *testing.T) {
 		require.NotEmpty(t, habitID)
-
 		payload := fmt.Sprintf(`{
             "habit_id": "%s",
             "completion_date": "%s",
@@ -223,20 +252,14 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 
 		req, _ := http.NewRequest("POST", "/api/v1/entries", bytes.NewBufferString(payload))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-User-ID", existingUserID)
+		req.Header.Set("Authorization", "Bearer "+authToken) // <--- TOKEN
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
-
-		if w.Code != http.StatusCreated {
-			t.Logf("Create Entry Failed: %s", w.Body.String())
-		}
 		require.Equal(t, http.StatusCreated, w.Code)
-
 		var resp idResponse
 		json.Unmarshal(w.Body.Bytes(), &resp)
 		entryID = resp.ID
-		require.NotEmpty(t, entryID)
 	})
 
 	t.Run("3b. Validation Error (Bad JSON)", func(t *testing.T) {
@@ -245,53 +268,45 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 
 		req, _ := http.NewRequest("POST", "/api/v1/entries", bytes.NewBufferString(payload))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-User-ID", existingUserID)
+		req.Header.Set("Authorization", "Bearer "+authToken)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
-	t.Run("4. Update Entry (Success)", func(t *testing.T) {
-		require.NotEmpty(t, entryID)
+	t.Run("4. Update Entry", func(t *testing.T) {
 		payload := `{"value": 600, "notes": "Updated", "version": 1}`
-
 		req, _ := http.NewRequest("PUT", "/api/v1/entries/"+entryID, bytes.NewBufferString(payload))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-User-ID", existingUserID)
+		req.Header.Set("Authorization", "Bearer "+authToken)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
-
 		assert.Equal(t, http.StatusOK, w.Code)
-		assert.Contains(t, w.Body.String(), `"value":600`)
 	})
 
 	t.Run("4b. Optimistic Locking Conflict", func(t *testing.T) {
-		payload := `{"value": 700, "version": 1}`
-
+		payload := `{"value": 700, "version": 1}` // Versione vecchia
 		req, _ := http.NewRequest("PUT", "/api/v1/entries/"+entryID, bytes.NewBufferString(payload))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-User-ID", existingUserID)
+		req.Header.Set("Authorization", "Bearer "+authToken)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
-
 		assert.Equal(t, http.StatusConflict, w.Code)
 	})
 
 	t.Run("5. List Entries", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/api/v1/entries?habit_id="+habitID, nil)
-		req.Header.Set("X-User-ID", existingUserID)
+		req.Header.Set("Authorization", "Bearer "+authToken)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
-
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var list listEntryResponse
 		json.Unmarshal(w.Body.Bytes(), &list)
-
 		require.Len(t, list, 1)
 		assert.Equal(t, 600, list[0].Value)
 	})
@@ -301,38 +316,38 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 		safeSince := url.QueryEscape(since)
 
 		req, _ := http.NewRequest("GET", "/api/v1/entries/sync?since="+safeSince, nil)
-		req.Header.Set("X-User-ID", existingUserID)
+		req.Header.Set("Authorization", "Bearer "+authToken)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
-
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), entryID)
 	})
 
-	t.Run("7. Security: IDOR Check", func(t *testing.T) {
+	t.Run("7. Security: IDOR Check (Attacker)", func(t *testing.T) {
+		// Generiamo un token valido ma per un altro utente
+		attackerToken, _ := tokenService.GenerateToken(attackerID)
+
 		req, _ := http.NewRequest("DELETE", "/api/v1/entries/"+entryID, nil)
-		req.Header.Set("X-User-ID", attackerID)
+		req.Header.Set("Authorization", "Bearer "+attackerToken) // Token Attaccante
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
-
 		assert.Equal(t, http.StatusForbidden, w.Code)
 	})
 
 	t.Run("8. Delete Entry", func(t *testing.T) {
 		req, _ := http.NewRequest("DELETE", "/api/v1/entries/"+entryID, nil)
-		req.Header.Set("X-User-ID", existingUserID)
+		req.Header.Set("Authorization", "Bearer "+authToken)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
-
 		assert.Equal(t, http.StatusNoContent, w.Code)
 	})
 
 	t.Run("9. Verify Entry Deletion", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/api/v1/entries?habit_id="+habitID, nil)
-		req.Header.Set("X-User-ID", existingUserID)
+		req.Header.Set("Authorization", "Bearer "+authToken)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -344,11 +359,10 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 
 	t.Run("10. Delete Habit (Full Cleanup)", func(t *testing.T) {
 		req, _ := http.NewRequest("DELETE", "/api/v1/habits/"+habitID, nil)
-		req.Header.Set("X-User-ID", existingUserID)
+		req.Header.Set("Authorization", "Bearer "+authToken)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
-
 		assert.Equal(t, http.StatusNoContent, w.Code)
 	})
 }

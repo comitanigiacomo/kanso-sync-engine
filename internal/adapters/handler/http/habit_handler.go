@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/handler/http/middleware" // <--- IMPORTANTE
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/domain"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/services"
 	"github.com/gin-gonic/gin"
@@ -61,9 +62,9 @@ func (h *HabitHandler) RegisterRoutes(router *gin.RouterGroup) {
 }
 
 func (h *HabitHandler) Create(c *gin.Context) {
-	userID := c.GetHeader("X-User-ID")
-	if userID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing user id header"})
+	userID, ok := middleware.GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "user context missing"})
 		return
 	}
 
@@ -102,9 +103,9 @@ func (h *HabitHandler) Create(c *gin.Context) {
 }
 
 func (h *HabitHandler) List(c *gin.Context) {
-	userID := c.GetHeader("X-User-ID")
-	if userID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing user id header"})
+	userID, ok := middleware.GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "user context missing"})
 		return
 	}
 
@@ -118,9 +119,9 @@ func (h *HabitHandler) List(c *gin.Context) {
 }
 
 func (h *HabitHandler) Sync(c *gin.Context) {
-	userID := c.GetHeader("X-User-ID")
-	if userID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing user id header"})
+	userID, ok := middleware.GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "user context missing"})
 		return
 	}
 
@@ -149,9 +150,9 @@ func (h *HabitHandler) Sync(c *gin.Context) {
 }
 
 func (h *HabitHandler) Update(c *gin.Context) {
-	userID := c.GetHeader("X-User-ID")
-	if userID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing user id header"})
+	userID, ok := middleware.GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "user context missing"})
 		return
 	}
 
@@ -206,9 +207,9 @@ func (h *HabitHandler) Update(c *gin.Context) {
 }
 
 func (h *HabitHandler) Delete(c *gin.Context) {
-	userID := c.GetHeader("X-User-ID")
-	if userID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing user id header"})
+	userID, ok := middleware.GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "user context missing"})
 		return
 	}
 
