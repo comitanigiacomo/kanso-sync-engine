@@ -15,9 +15,12 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	adapterHTTP "github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/handler/http"
+	"github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/handler/http/middleware" // Import Middleware Key
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/domain"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/services"
 )
+
+// --- MOCK REPOS (Invariati) ---
 
 type MockEntryRepo struct {
 	store map[string]*domain.HabitEntry
@@ -36,6 +39,15 @@ func (m *MockEntryRepo) Create(ctx context.Context, e *domain.HabitEntry) error 
 }
 
 func (m *MockEntryRepo) Update(ctx context.Context, e *domain.HabitEntry) error {
+	existing, ok := m.store[e.ID]
+	if !ok {
+		return domain.ErrEntryNotFound
+	}
+	// Simulazione ottimistic locking del DB
+	if e.Version != existing.Version {
+		return domain.ErrEntryConflict
+	}
+	e.Version++ // Simuliamo incremento DB
 	m.store[e.ID] = e
 	return nil
 }
@@ -49,8 +61,11 @@ func (m *MockEntryRepo) GetByID(ctx context.Context, id string) (*domain.HabitEn
 }
 
 func (m *MockEntryRepo) Delete(ctx context.Context, id string, userID string) error {
-	_, ok := m.store[id]
+	e, ok := m.store[id]
 	if !ok {
+		return domain.ErrEntryNotFound
+	}
+	if e.UserID != userID {
 		return domain.ErrEntryNotFound
 	}
 	delete(m.store, id)
@@ -106,17 +121,31 @@ func (m *MockHabitRepoForEntry) GetChanges(ctx context.Context, u string, t time
 	return nil, nil
 }
 
+// --- SETUP ROUTER AGGIORNATO (FAKE MIDDLEWARE) ---
+
 func setupEntryRouter() (*gin.Engine, *MockEntryRepo, *MockHabitRepoForEntry) {
 	gin.SetMode(gin.TestMode)
 	entryRepo := NewMockEntryRepo()
 	habitRepo := NewMockHabitRepo()
 	svc := services.NewEntryService(entryRepo, habitRepo)
 	handler := adapterHTTP.NewEntryHandler(svc)
+
 	r := gin.New()
+
+	// FAKE MIDDLEWARE: Prende l'header del test e lo mette nel contesto
+	r.Use(func(c *gin.Context) {
+		if userID := c.GetHeader("X-User-ID"); userID != "" {
+			c.Set(middleware.ContextUserIDKey, userID)
+		}
+		c.Next()
+	})
+
 	api := r.Group("/api/v1")
 	handler.RegisterRoutes(api)
 	return r, entryRepo, habitRepo
 }
+
+// --- TEST CASES (Pressoché identici, solo fix minori su expectation) ---
 
 func TestCreateEntry(t *testing.T) {
 	t.Run("Success: 201 Created", func(t *testing.T) {
@@ -135,7 +164,7 @@ func TestCreateEntry(t *testing.T) {
 
 		req, _ := http.NewRequest("POST", "/api/v1/entries", bytes.NewBuffer(jsonBody))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-User-ID", "user-1")
+		req.Header.Set("X-User-ID", "user-1") // Il Fake Middleware lo leggerà
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -201,6 +230,7 @@ func TestUpdateEntry(t *testing.T) {
 		e.Version = 2
 		entryRepo.Create(context.Background(), e)
 
+		// Invio versione 1, ma nel mock è 2 -> Conflitto
 		body := map[string]interface{}{"value": 10, "version": 1}
 		jsonBody, _ := json.Marshal(body)
 
@@ -309,7 +339,6 @@ func TestSyncEntries(t *testing.T) {
 	entryRepo.Create(context.Background(), eNew)
 
 	since := time.Now().Add(-1 * time.Hour).Format(time.RFC3339)
-
 	safeSince := url.QueryEscape(since)
 
 	t.Run("Success: Returns only new entries", func(t *testing.T) {
