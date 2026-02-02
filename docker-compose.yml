@@ -1,4 +1,27 @@
 services:
+  # --- Backend Service (Go) ---
+  api:
+    build: .
+    container_name: kanso-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRATION=72h
+      - JWT_ISSUER=kanso-docker
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - kanso-net
+
+  # --- Database Service (Postgres) ---
   db:
     image: postgres:16-alpine
     container_name: kanso-postgres
@@ -11,12 +34,18 @@ services:
       - "${DB_PORT}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./db/migrations/000001_create_habits_table.up.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./db/init_schema.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - kanso-net
 
 volumes:
   postgres_data:
+
+networks:
+  kanso-net:
+    driver: bridge
