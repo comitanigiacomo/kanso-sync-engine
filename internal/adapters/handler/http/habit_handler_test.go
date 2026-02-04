@@ -15,6 +15,7 @@ import (
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/handler/http/middleware"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/domain"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/services"
+	"github.com/redis/go-redis/v9"
 )
 
 type MockRepo struct {
@@ -96,7 +97,13 @@ func setupRouter() (*gin.Engine, *MockRepo) {
 	gin.SetMode(gin.TestMode)
 
 	repo := NewMockRepo()
-	svc := services.NewHabitService(repo)
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: "localhost:0",
+	})
+
+	svc := services.NewHabitService(repo, rdb)
+
 	handler := adapterHTTP.NewHabitHandler(svc)
 
 	r := gin.New()

@@ -8,8 +8,21 @@ import (
 
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/domain"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/services"
+	"github.com/redis/go-redis/v9" // Import necessario
 	"github.com/stretchr/testify/assert"
 )
+
+// --- Helper per correggere i test senza toccare la logica ---
+// Crea un service con un Redis che fallisce subito (Fail Open).
+// Così testiamo solo la logica di business e il repository.
+func newTestService(repo domain.HabitRepository) *services.HabitService {
+	// Puntiamo a una porta inesistente per simulare "Redis Down"
+	// Il service è progettato per funzionare comunque (Fail Open)
+	rdb := redis.NewClient(&redis.Options{
+		Addr: "localhost:0",
+	})
+	return services.NewHabitService(repo, rdb)
+}
 
 type MockRepo struct {
 	store         map[string]*domain.Habit
@@ -111,7 +124,7 @@ func (m *MockRepo) GetChanges(ctx context.Context, userID string, since time.Tim
 func TestHabitService_Create(t *testing.T) {
 	t.Run("Success: Should create and persist a valid habit", func(t *testing.T) {
 		repo := NewMockRepo()
-		svc := services.NewHabitService(repo)
+		svc := newTestService(repo) // USIAMO L'HELPER
 		ctx := context.Background()
 
 		input := services.CreateHabitInput{
@@ -133,7 +146,7 @@ func TestHabitService_Create(t *testing.T) {
 
 	t.Run("Fail: Domain Validation Error (Blocked BEFORE DB)", func(t *testing.T) {
 		repo := NewMockRepo()
-		svc := services.NewHabitService(repo)
+		svc := newTestService(repo)
 
 		input := services.CreateHabitInput{
 			UserID: "user-1",
@@ -150,7 +163,7 @@ func TestHabitService_Create(t *testing.T) {
 		repo := NewMockRepo()
 		repo.simulateError = errors.New("db connection lost")
 
-		svc := services.NewHabitService(repo)
+		svc := newTestService(repo)
 
 		input := services.CreateHabitInput{
 			UserID: "user-1",
@@ -167,7 +180,7 @@ func TestHabitService_Create(t *testing.T) {
 func TestHabitService_Update(t *testing.T) {
 	t.Run("Success: Should update existing habit (Owner)", func(t *testing.T) {
 		repo := NewMockRepo()
-		svc := services.NewHabitService(repo)
+		svc := newTestService(repo)
 
 		existing, _ := domain.NewHabit("Old Title", "user-1")
 		existing.Version = 1
@@ -195,7 +208,7 @@ func TestHabitService_Update(t *testing.T) {
 
 	t.Run("Fail: Security - Cannot update other user's habit (IDOR)", func(t *testing.T) {
 		repo := NewMockRepo()
-		svc := services.NewHabitService(repo)
+		svc := newTestService(repo)
 
 		existing, _ := domain.NewHabit("Secret Habit", "user-1")
 		repo.Create(context.Background(), existing)
@@ -216,7 +229,7 @@ func TestHabitService_Update(t *testing.T) {
 
 	t.Run("Fail: Habit Not Found", func(t *testing.T) {
 		repo := NewMockRepo()
-		svc := services.NewHabitService(repo)
+		svc := newTestService(repo)
 
 		input := services.UpdateHabitInput{
 			ID:     "ghost-id",
@@ -231,7 +244,7 @@ func TestHabitService_Update(t *testing.T) {
 
 	t.Run("Fail: Domain Validation during Update", func(t *testing.T) {
 		repo := NewMockRepo()
-		svc := services.NewHabitService(repo)
+		svc := newTestService(repo)
 
 		existing, _ := domain.NewHabit("Valid", "u1")
 		repo.Create(context.Background(), existing)
@@ -250,7 +263,7 @@ func TestHabitService_Update(t *testing.T) {
 
 	t.Run("Success: Partial Update should preserve existing fields", func(t *testing.T) {
 		repo := NewMockRepo()
-		svc := services.NewHabitService(repo)
+		svc := newTestService(repo)
 
 		existing, _ := domain.NewHabit("Old Title", "u1")
 		existing.Color = "#FF0000"
@@ -279,7 +292,7 @@ func TestHabitService_Update(t *testing.T) {
 func TestHabitService_Delete(t *testing.T) {
 	t.Run("Success: Should delete own habit", func(t *testing.T) {
 		repo := NewMockRepo()
-		svc := services.NewHabitService(repo)
+		svc := newTestService(repo)
 
 		h, _ := domain.NewHabit("To Delete", "user-1")
 		repo.Create(context.Background(), h)
@@ -294,7 +307,7 @@ func TestHabitService_Delete(t *testing.T) {
 
 	t.Run("Fail: Security - Cannot delete other user's habit (IDOR)", func(t *testing.T) {
 		repo := NewMockRepo()
-		svc := services.NewHabitService(repo)
+		svc := newTestService(repo)
 
 		h, _ := domain.NewHabit("Don't Touch", "user-1")
 		repo.Create(context.Background(), h)
@@ -309,7 +322,7 @@ func TestHabitService_Delete(t *testing.T) {
 
 	t.Run("Fail: Delete non-existent habit", func(t *testing.T) {
 		repo := NewMockRepo()
-		svc := services.NewHabitService(repo)
+		svc := newTestService(repo)
 
 		err := svc.Delete(context.Background(), "ghost-id", "user-1")
 
@@ -319,7 +332,7 @@ func TestHabitService_Delete(t *testing.T) {
 
 func TestHabitService_ListAndGet(t *testing.T) {
 	repo := NewMockRepo()
-	svc := services.NewHabitService(repo)
+	svc := newTestService(repo)
 
 	h1, _ := domain.NewHabit("H1", "user-1")
 	h2, _ := domain.NewHabit("H2", "user-1")
@@ -349,7 +362,7 @@ func TestHabitService_ListAndGet(t *testing.T) {
 func TestHabitService_SyncLogic(t *testing.T) {
 	t.Run("Optimistic Locking: Should fail if client has old version", func(t *testing.T) {
 		repo := NewMockRepo()
-		svc := services.NewHabitService(repo)
+		svc := newTestService(repo)
 
 		existing, _ := domain.NewHabit("V2 Habit", "user-1")
 		existing.Version = 2
@@ -369,7 +382,7 @@ func TestHabitService_SyncLogic(t *testing.T) {
 
 	t.Run("GetDelta: Should return only changed items", func(t *testing.T) {
 		repo := NewMockRepo()
-		svc := services.NewHabitService(repo)
+		svc := newTestService(repo)
 		ctx := context.Background()
 
 		h1, _ := domain.NewHabit("Old", "user-1")

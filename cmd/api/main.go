@@ -13,6 +13,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
 
+	"github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/cache"
 	adapterHTTP "github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/handler/http"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/repository"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/services"
@@ -27,6 +28,10 @@ func main() {
 	dbHost := getEnv("DB_HOST", "localhost")
 	dbPort := getEnv("DB_PORT", "5432")
 	serverPort := getEnv("PORT", "8080")
+
+	redisHost := getEnv("REDIS_HOST", "localhost")
+	redisPort := getEnv("REDIS_PORT", "6379")
+	redisPass := getEnv("REDIS_PASSWORD", "secret_redis_pass_local")
 
 	jwtSecret := getEnv("JWT_SECRET", "change-me-in-production-super-secret-key")
 	jwtIssuer := getEnv("JWT_ISSUER", "kanso-api")
@@ -47,6 +52,14 @@ func main() {
 	db.SetConnMaxLifetime(5 * time.Minute)
 	log.Println("Database connected successfully.")
 
+	log.Println("Connecting to Redis...")
+	rdb, err := cache.NewRedisClient(redisHost, redisPort, redisPass, 0)
+	if err != nil {
+		log.Fatalf("Critical: Failed to connect to Redis: %v", err)
+	}
+	defer rdb.Close()
+	log.Println("Redis connected successfully.")
+
 	tokenDuration, err := time.ParseDuration(jwtExpStr)
 	if err != nil {
 		log.Fatalf("Invalid JWT duration: %v", err)
@@ -57,7 +70,9 @@ func main() {
 	userRepo := repository.NewPostgresUserRepository(db.DB)
 
 	tokenService := services.NewTokenService(jwtSecret, jwtIssuer, tokenDuration)
-	habitService := services.NewHabitService(habitRepo)
+
+	habitService := services.NewHabitService(habitRepo, rdb)
+
 	entryService := services.NewEntryService(entryRepo, habitRepo)
 	authService := services.NewAuthService(userRepo, tokenService)
 
@@ -71,6 +86,7 @@ func main() {
 		EntryHandler: entryHandler,
 		TokenService: tokenService,
 		DB:           db,
+		Redis:        rdb,
 		StartTime:    startTime,
 	})
 

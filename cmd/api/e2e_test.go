@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,18 +15,18 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	adapterHTTP "github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/handler/http"
-	"github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/handler/http/middleware" // Serve per il middleware reale
+	"github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/handler/http/middleware"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/repository"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/services"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-// --- DTOs ---
 type idResponse struct {
 	ID string `json:"id"`
 }
@@ -48,7 +49,6 @@ type loginResponse struct {
 	} `json:"user"`
 }
 
-// --- DB SETUP & MIGRATION ---
 func setupTestDB(t *testing.T) *sqlx.DB {
 	dbUser := os.Getenv("DB_USER")
 	if dbUser == "" {
@@ -77,7 +77,6 @@ func setupTestDB(t *testing.T) *sqlx.DB {
 	db, err := sqlx.Connect("pgx", dsn)
 	require.NoError(t, err, "Failed to connect to test database")
 
-	// 🛠️ FIX 60k: Creazione Tabelle (Schema Migration) per Test Self-Contained
 	schema := `
 	CREATE TABLE IF NOT EXISTS users (
 		id TEXT PRIMARY KEY,
@@ -127,23 +126,51 @@ func setupTestDB(t *testing.T) *sqlx.DB {
 	return db
 }
 
+func setupTestRedis(t *testing.T) *redis.Client {
+	host := os.Getenv("REDIS_HOST")
+	if host == "" {
+		host = "localhost"
+	}
+	port := os.Getenv("REDIS_PORT")
+	if port == "" {
+		port = "6379"
+	}
+	pass := os.Getenv("REDIS_PASSWORD")
+	if pass == "" {
+		pass = "secret_redis_pass_local"
+	}
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     fmt.Sprintf("%s:%s", host, port),
+		Password: pass,
+		DB:       1,
+	})
+
+	return rdb
+}
+
 func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+
 	db := setupTestDB(t)
 	defer db.Close()
 
-	// 1. Pulizia Totale
+	rdb := setupTestRedis(t)
+	defer rdb.Close()
+
 	_, err := db.Exec("TRUNCATE TABLE habit_entries, habits, users CASCADE")
 	require.NoError(t, err, "Failed to truncate tables")
 
-	// 2. Wiring
+	rdb.FlushDB(context.Background())
+
 	habitRepo := repository.NewPostgresHabitRepository(db)
 	entryRepo := repository.NewPostgresEntryRepository(db)
 	userRepo := repository.NewPostgresUserRepository(db.DB)
 
 	tokenService := services.NewTokenService("test-secret-e2e", "kanso-e2e", 24*time.Hour)
 
-	habitSvc := services.NewHabitService(habitRepo)
+	habitSvc := services.NewHabitService(habitRepo, rdb)
+
 	entrySvc := services.NewEntryService(entryRepo, habitRepo)
 	authSvc := services.NewAuthService(userRepo, tokenService)
 
@@ -151,16 +178,11 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 	entryHandler := adapterHTTP.NewEntryHandler(entrySvc)
 	authHandler := adapterHTTP.NewAuthHandler(authSvc)
 
-	// 3. Router Setup
 	router := gin.Default()
 
-	// Configurazione Rotte
 	api := router.Group("/api/v1")
-
-	// A. Pubbliche (Auth)
 	authHandler.RegisterRoutes(api)
 
-	// B. Protette (Habits/Entries) - Applichiamo Middleware!
 	protected := api.Group("")
 	protected.Use(middleware.AuthMiddleware(tokenService))
 	{
@@ -168,7 +190,6 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 		entryHandler.RegisterRoutes(protected)
 	}
 
-	// Setup Health Check separato
 	router.GET("/health", func(c *gin.Context) {
 		if err := db.Ping(); err != nil {
 			c.JSON(503, gin.H{"status": "error"})
@@ -179,11 +200,9 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 
 	var habitID string
 	var entryID string
-	var authToken string // Il token JWT che useremo per tutte le richieste
+	var authToken string
 
 	attackerID := uuid.NewString()
-
-	// --- INIZIO TEST SCENARIOS ---
 
 	t.Run("0. Health Check", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/health", nil)
@@ -214,10 +233,8 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, resp.Token)
 
-		authToken = resp.Token // SALVIAMO IL TOKEN!
+		authToken = resp.Token
 	})
-
-	// NOTA: Da ora in poi usiamo req.Header.Set("Authorization", "Bearer "+authToken)
 
 	t.Run("2. Create Habit", func(t *testing.T) {
 		payload := `{
@@ -229,7 +246,7 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
         }`
 		req, _ := http.NewRequest("POST", "/api/v1/habits", bytes.NewBufferString(payload))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+authToken) // <--- TOKEN
+		req.Header.Set("Authorization", "Bearer "+authToken)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -252,7 +269,7 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 
 		req, _ := http.NewRequest("POST", "/api/v1/entries", bytes.NewBufferString(payload))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+authToken) // <--- TOKEN
+		req.Header.Set("Authorization", "Bearer "+authToken)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -287,7 +304,7 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 	})
 
 	t.Run("4b. Optimistic Locking Conflict", func(t *testing.T) {
-		payload := `{"value": 700, "version": 1}` // Versione vecchia
+		payload := `{"value": 700, "version": 1}`
 		req, _ := http.NewRequest("PUT", "/api/v1/entries/"+entryID, bytes.NewBufferString(payload))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+authToken)
@@ -325,11 +342,10 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 	})
 
 	t.Run("7. Security: IDOR Check (Attacker)", func(t *testing.T) {
-		// Generiamo un token valido ma per un altro utente
 		attackerToken, _ := tokenService.GenerateToken(attackerID)
 
 		req, _ := http.NewRequest("DELETE", "/api/v1/entries/"+entryID, nil)
-		req.Header.Set("Authorization", "Bearer "+attackerToken) // Token Attaccante
+		req.Header.Set("Authorization", "Bearer "+attackerToken)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)

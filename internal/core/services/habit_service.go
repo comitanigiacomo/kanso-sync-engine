@@ -2,19 +2,34 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/domain"
+	"github.com/redis/go-redis/v9"
 )
 
 type HabitService struct {
-	repo domain.HabitRepository
+	repo  domain.HabitRepository
+	redis *redis.Client
 }
 
-func NewHabitService(repo domain.HabitRepository) *HabitService {
+func NewHabitService(repo domain.HabitRepository, rdb *redis.Client) *HabitService {
 	return &HabitService{
-		repo: repo,
+		repo:  repo,
+		redis: rdb,
+	}
+}
+
+func (s *HabitService) cacheKey(userID string) string {
+	return fmt.Sprintf("habits:%s", userID)
+}
+
+func (s *HabitService) invalidateCache(ctx context.Context, userID string) {
+	if err := s.redis.Del(ctx, s.cacheKey(userID)).Err(); err != nil {
+		log.Printf("Failed to invalidate cache for user %s: %v", userID, err)
 	}
 }
 
@@ -98,11 +113,33 @@ func (s *HabitService) Create(ctx context.Context, input CreateHabitInput) (*dom
 		return nil, err
 	}
 
+	s.invalidateCache(ctx, input.UserID)
+
 	return habit, nil
 }
 
 func (s *HabitService) ListByUserID(ctx context.Context, userID string) ([]*domain.Habit, error) {
-	return s.repo.ListByUserID(ctx, userID)
+	key := s.cacheKey(userID)
+
+	val, err := s.redis.Get(ctx, key).Result()
+	if err == nil {
+		var habits []*domain.Habit
+		if err := json.Unmarshal([]byte(val), &habits); err == nil {
+			return habits, nil
+		}
+		log.Printf("Cache corrupted for user %s", userID)
+	}
+
+	habits, err := s.repo.ListByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if data, err := json.Marshal(habits); err == nil {
+		s.redis.Set(ctx, key, data, 30*time.Minute)
+	}
+
+	return habits, nil
 }
 
 func (s *HabitService) GetDelta(ctx context.Context, userID string, lastSync time.Time) ([]*domain.Habit, error) {
@@ -164,7 +201,13 @@ func (s *HabitService) Update(ctx context.Context, input UpdateHabitInput) error
 		habit.FrequencyType = input.FrequencyType
 	}
 
-	return s.repo.Update(ctx, habit)
+	if err := s.repo.Update(ctx, habit); err != nil {
+		return err
+	}
+
+	s.invalidateCache(ctx, input.UserID)
+
+	return nil
 }
 
 func (s *HabitService) Delete(ctx context.Context, id string, userID string) error {
@@ -177,5 +220,11 @@ func (s *HabitService) Delete(ctx context.Context, id string, userID string) err
 		return domain.ErrHabitNotFound
 	}
 
-	return s.repo.Delete(ctx, id)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+
+	s.invalidateCache(ctx, userID)
+
+	return nil
 }
