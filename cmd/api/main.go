@@ -86,6 +86,7 @@ func main() {
 		EntryHandler: entryHandler,
 		TokenService: tokenService,
 		DB:           db,
+		Redis:        rdb,
 		StartTime:    startTime,
 	})
 

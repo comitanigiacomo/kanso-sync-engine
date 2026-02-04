@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/handler/http/middleware"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/services"
@@ -16,6 +17,7 @@ type RouterDependencies struct {
 	EntryHandler *EntryHandler
 	TokenService *services.TokenService
 	DB           *sqlx.DB
+	Redis        *redis.Client
 	StartTime    time.Time
 }
 
@@ -33,14 +35,30 @@ func NewRouter(deps RouterDependencies) *gin.Engine {
 		c.Next()
 	})
 
+	if deps.Redis != nil {
+		router.Use(middleware.RateLimiterMiddleware(deps.Redis, 100, 1*time.Minute))
+	}
+
 	router.GET("/health", func(c *gin.Context) {
+		dbStatus := "connected"
 		if err := deps.DB.Ping(); err != nil {
-			c.JSON(503, gin.H{"status": "error", "database": "unreachable"})
-			return
+			dbStatus = "unreachable"
 		}
-		c.JSON(200, gin.H{
+
+		redisStatus := "connected"
+		if deps.Redis == nil || deps.Redis.Ping(c.Request.Context()).Err() != nil {
+			redisStatus = "unreachable"
+		}
+
+		statusCode := 200
+		if dbStatus == "unreachable" || redisStatus == "unreachable" {
+			statusCode = 503
+		}
+
+		c.JSON(statusCode, gin.H{
 			"status":   "ok",
-			"database": "connected",
+			"database": dbStatus,
+			"redis":    redisStatus,
 			"uptime":   time.Since(deps.StartTime).String(),
 		})
 	})
