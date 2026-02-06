@@ -80,7 +80,7 @@ jobs:
             echo "Waiting for Postgres..."
             sleep 2
           done
-          psql -h localhost -U $DB_USER -d $DB_NAME -f db/init.sql
+          psql -h localhost -U $DB_USER -d $DB_NAME -f db/init_schema.sql
 
       - name: Build Application
         run: go build -v ./...
