@@ -27,15 +27,15 @@ func (r *PostgresEntryRepository) Create(ctx context.Context, entry *domain.Habi
 	}
 
 	query := `
-		INSERT INTO habit_entries (
-			id, habit_id, user_id, 
-			completion_date, value, notes, 
-			version, created_at, updated_at, deleted_at
-		) VALUES (
-			:id, :habit_id, :user_id, 
-			:completion_date, :value, :notes, 
-			:version, :created_at, :updated_at, :deleted_at
-		)`
+        INSERT INTO habit_entries (
+            id, habit_id, user_id, 
+            completion_date, value, notes, 
+            version, created_at, updated_at, deleted_at
+        ) VALUES (
+            :id, :habit_id, :user_id, 
+            :completion_date, :value, :notes, 
+            :version, :created_at, :updated_at, :deleted_at
+        )`
 
 	_, err := r.db.NamedExecContext(ctx, query, entry)
 	if err != nil {
@@ -66,16 +66,32 @@ func (r *PostgresEntryRepository) GetByID(ctx context.Context, id string) (*doma
 	return &entry, nil
 }
 
-func (r *PostgresEntryRepository) ListByHabitID(ctx context.Context, habitID string, from, to time.Time) ([]*domain.HabitEntry, error) {
+func (r *PostgresEntryRepository) ListByHabitID(ctx context.Context, habitID string) ([]*domain.HabitEntry, error) {
 	entries := []*domain.HabitEntry{}
 
 	query := `
-		SELECT * FROM habit_entries 
-		WHERE habit_id = $1 
-		  AND completion_date >= $2 
-		  AND completion_date <= $3
-		  AND deleted_at IS NULL
-		ORDER BY completion_date DESC`
+        SELECT * FROM habit_entries 
+        WHERE habit_id = $1 
+          AND deleted_at IS NULL
+        ORDER BY completion_date DESC`
+
+	err := r.db.SelectContext(ctx, &entries, query, habitID)
+	if err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+func (r *PostgresEntryRepository) ListByHabitIDWithRange(ctx context.Context, habitID string, from, to time.Time) ([]*domain.HabitEntry, error) {
+	entries := []*domain.HabitEntry{}
+
+	query := `
+        SELECT * FROM habit_entries 
+        WHERE habit_id = $1 
+          AND completion_date >= $2 
+          AND completion_date <= $3
+          AND deleted_at IS NULL
+        ORDER BY completion_date DESC`
 
 	err := r.db.SelectContext(ctx, &entries, query, habitID, from, to)
 	if err != nil {
@@ -89,15 +105,15 @@ func (r *PostgresEntryRepository) Update(ctx context.Context, entry *domain.Habi
 	entry.UpdatedAt = time.Now().UTC()
 
 	query := `
-		UPDATE habit_entries 
-		SET value = :value,
-		    notes = :notes,
-		    completion_date = :completion_date,
-		    version = :version,
-		    updated_at = :updated_at
-		WHERE id = :id 
-		  AND version = :version - 1  -- Optimistic Lock check
-		  AND deleted_at IS NULL`
+        UPDATE habit_entries 
+        SET value = :value,
+            notes = :notes,
+            completion_date = :completion_date,
+            version = :version,
+            updated_at = :updated_at
+        WHERE id = :id 
+          AND version = :version - 1  -- Optimistic Lock check
+          AND deleted_at IS NULL`
 
 	result, err := r.db.NamedExecContext(ctx, query, entry)
 	if err != nil {
@@ -124,13 +140,13 @@ func (r *PostgresEntryRepository) Delete(ctx context.Context, id string, userID 
 	now := time.Now().UTC()
 
 	query := `
-		UPDATE habit_entries 
-		SET deleted_at = $1,
-		    updated_at = $1,
-		    version = version + 1
-		WHERE id = $2 
-		  AND user_id = $3 -- Security Check
-		  AND deleted_at IS NULL`
+        UPDATE habit_entries 
+        SET deleted_at = $1,
+            updated_at = $1,
+            version = version + 1
+        WHERE id = $2 
+          AND user_id = $3 -- Security Check
+          AND deleted_at IS NULL`
 
 	result, err := r.db.ExecContext(ctx, query, now, id, userID)
 	if err != nil {
@@ -152,10 +168,10 @@ func (r *PostgresEntryRepository) GetChanges(ctx context.Context, userID string,
 	entries := []*domain.HabitEntry{}
 
 	query := `
-		SELECT * FROM habit_entries 
-		WHERE user_id = $1 
-		  AND updated_at > $2
-		ORDER BY updated_at ASC`
+        SELECT * FROM habit_entries 
+        WHERE user_id = $1 
+          AND updated_at > $2
+        ORDER BY updated_at ASC`
 
 	err := r.db.SelectContext(ctx, &entries, query, userID, since)
 	if err != nil {
