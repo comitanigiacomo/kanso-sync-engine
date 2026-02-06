@@ -79,17 +79,21 @@ func main() {
 	tokenService := services.NewTokenService(jwtSecret, jwtIssuer, tokenDuration)
 	habitService := services.NewHabitService(habitRepo, rdb)
 	authService := services.NewAuthService(userRepo, tokenService)
-
 	entryService := services.NewEntryService(entryRepo, habitRepo, streakWorker)
+
+	statsService := services.NewStatsService(habitRepo, entryRepo)
 
 	habitHandler := adapterHTTP.NewHabitHandler(habitService)
 	entryHandler := adapterHTTP.NewEntryHandler(entryService)
 	authHandler := adapterHTTP.NewAuthHandler(authService)
 
+	statsHandler := adapterHTTP.NewStatsHandler(statsService)
+
 	router := adapterHTTP.NewRouter(adapterHTTP.RouterDependencies{
 		AuthHandler:  authHandler,
 		HabitHandler: habitHandler,
 		EntryHandler: entryHandler,
+		StatsHandler: statsHandler,
 		TokenService: tokenService,
 		DB:           db,
 		Redis:        rdb,
