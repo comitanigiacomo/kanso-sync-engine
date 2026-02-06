@@ -65,6 +65,14 @@ func (m *MockHabitEntryRepo) GetChanges(ctx context.Context, userID string, sinc
 	return args.Get(0).([]*domain.HabitEntry), args.Error(1)
 }
 
+func (m *MockHabitEntryRepo) ListByUserIDAndDateRange(ctx context.Context, userID string, startDate, endDate time.Time) ([]domain.HabitEntry, error) {
+	args := m.Called(ctx, userID, startDate, endDate)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.HabitEntry), args.Error(1)
+}
+
 type MockHabitRepo struct {
 	mock.Mock
 }
