@@ -23,6 +23,7 @@ import (
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/handler/http/middleware"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/repository"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/services"
+	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/workers"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -78,48 +79,50 @@ func setupTestDB(t *testing.T) *sqlx.DB {
 	require.NoError(t, err, "Failed to connect to test database")
 
 	schema := `
-	CREATE TABLE IF NOT EXISTS users (
-		id TEXT PRIMARY KEY,
-		email TEXT UNIQUE NOT NULL,
-		password_hash TEXT NOT NULL,
-		created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-		updated_at TIMESTAMP WITH TIME ZONE NOT NULL
-	);
+    CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL
+    );
 
-	CREATE TABLE IF NOT EXISTS habits (
-		id TEXT PRIMARY KEY,
-		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		title TEXT NOT NULL,
-		description TEXT,
-		color TEXT,
-		icon TEXT,
-		type TEXT NOT NULL,
-		reminder_time TEXT,
-		unit TEXT,
-		target_value INTEGER,
-		interval INTEGER,
-		weekdays INTEGER[],
-		frequency_type TEXT,
-		created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-		updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
-		deleted_at TIMESTAMP WITH TIME ZONE,
-		version INTEGER DEFAULT 1,
-		sort_order INTEGER DEFAULT 0
-	);
+    CREATE TABLE IF NOT EXISTS habits (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        description TEXT,
+        color TEXT,
+        icon TEXT,
+        type TEXT NOT NULL,
+        reminder_time TEXT,
+        unit TEXT,
+        target_value INTEGER,
+        interval INTEGER,
+        weekdays INTEGER[],
+        frequency_type TEXT,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        deleted_at TIMESTAMP WITH TIME ZONE,
+        version INTEGER DEFAULT 1,
+        sort_order INTEGER DEFAULT 0,
+        current_streak INTEGER DEFAULT 0,  -- Aggiunta colonna per E2E
+        longest_streak INTEGER DEFAULT 0   -- Aggiunta colonna per E2E
+    );
 
-	CREATE TABLE IF NOT EXISTS habit_entries (
-		id TEXT PRIMARY KEY,
-		habit_id TEXT NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
-		user_id TEXT NOT NULL,
-		value INTEGER NOT NULL,
-		notes TEXT,
-		completion_date TIMESTAMP WITH TIME ZONE NOT NULL,
-		created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-		updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
-		deleted_at TIMESTAMP WITH TIME ZONE,
-		version INTEGER DEFAULT 1
-	);
-	`
+    CREATE TABLE IF NOT EXISTS habit_entries (
+        id TEXT PRIMARY KEY,
+        habit_id TEXT NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL,
+        value INTEGER NOT NULL,
+        notes TEXT,
+        completion_date TIMESTAMP WITH TIME ZONE NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        deleted_at TIMESTAMP WITH TIME ZONE,
+        version INTEGER DEFAULT 1
+    );
+    `
 	_, err = db.Exec(schema)
 	require.NoError(t, err, "Failed to initialize test database schema")
 
@@ -167,11 +170,18 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 	entryRepo := repository.NewPostgresEntryRepository(db)
 	userRepo := repository.NewPostgresUserRepository(db.DB)
 
+	streakWorker := workers.NewStreakWorker(habitRepo, entryRepo)
+
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+	streakWorker.Start(workerCtx)
+
 	tokenService := services.NewTokenService("test-secret-e2e", "kanso-e2e", 24*time.Hour)
 
 	habitSvc := services.NewHabitService(habitRepo, rdb)
 
-	entrySvc := services.NewEntryService(entryRepo, habitRepo)
+	entrySvc := services.NewEntryService(entryRepo, habitRepo, streakWorker)
+
 	authSvc := services.NewAuthService(userRepo, tokenService)
 
 	habitHandler := adapterHTTP.NewHabitHandler(habitSvc)
@@ -258,7 +268,7 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 		require.NotEmpty(t, habitID)
 	})
 
-	t.Run("3. Create Entry", func(t *testing.T) {
+	t.Run("3. Create Entry (Triggers Worker)", func(t *testing.T) {
 		require.NotEmpty(t, habitID)
 		payload := fmt.Sprintf(`{
             "habit_id": "%s",
@@ -277,6 +287,8 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 		var resp idResponse
 		json.Unmarshal(w.Body.Bytes(), &resp)
 		entryID = resp.ID
+
+		time.Sleep(100 * time.Millisecond)
 	})
 
 	t.Run("3b. Validation Error (Bad JSON)", func(t *testing.T) {
