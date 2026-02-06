@@ -107,6 +107,19 @@ func (m *MockEntryRepo) GetChanges(ctx context.Context, userID string, since tim
 	return changes, nil
 }
 
+func (m *MockEntryRepo) ListByUserIDAndDateRange(ctx context.Context, userID string, startDate, endDate time.Time) ([]domain.HabitEntry, error) {
+	var list []domain.HabitEntry
+	for _, e := range m.store {
+		if e.UserID == userID {
+			if (e.CompletionDate.After(startDate) || e.CompletionDate.Equal(startDate)) &&
+				(e.CompletionDate.Before(endDate) || e.CompletionDate.Equal(endDate)) {
+				list = append(list, *e)
+			}
+		}
+	}
+	return list, nil
+}
+
 type MockHabitRepoForEntry struct {
 	habits map[string]*domain.Habit
 }

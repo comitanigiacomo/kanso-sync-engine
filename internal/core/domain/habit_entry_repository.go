@@ -31,4 +31,6 @@ type HabitEntryRepository interface {
 
 	// GetChanges returns changes for sync.
 	GetChanges(ctx context.Context, userID string, since time.Time) ([]*HabitEntry, error)
+
+	ListByUserIDAndDateRange(ctx context.Context, userID string, startDate, endDate time.Time) ([]HabitEntry, error)
 }

@@ -15,6 +15,7 @@ type RouterDependencies struct {
 	AuthHandler  *AuthHandler
 	HabitHandler *HabitHandler
 	EntryHandler *EntryHandler
+	StatsHandler *StatsHandler
 	TokenService *services.TokenService
 	DB           *sqlx.DB
 	Redis        *redis.Client
@@ -72,6 +73,8 @@ func NewRouter(deps RouterDependencies) *gin.Engine {
 	{
 		deps.HabitHandler.RegisterRoutes(protected)
 		deps.EntryHandler.RegisterRoutes(protected)
+
+		deps.StatsHandler.RegisterRoutes(protected)
 	}
 
 	return router

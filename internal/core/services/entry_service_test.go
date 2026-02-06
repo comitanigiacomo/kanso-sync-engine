@@ -65,6 +65,14 @@ func (m *MockHabitEntryRepo) GetChanges(ctx context.Context, userID string, sinc
 	return args.Get(0).([]*domain.HabitEntry), args.Error(1)
 }
 
+func (m *MockHabitEntryRepo) ListByUserIDAndDateRange(ctx context.Context, userID string, startDate, endDate time.Time) ([]domain.HabitEntry, error) {
+	args := m.Called(ctx, userID, startDate, endDate)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.HabitEntry), args.Error(1)
+}
+
 type MockHabitRepo struct {
 	mock.Mock
 }
@@ -77,10 +85,18 @@ func (m *MockHabitRepo) GetByID(ctx context.Context, id string) (*domain.Habit, 
 	return args.Get(0).(*domain.Habit), args.Error(1)
 }
 
-func (m *MockHabitRepo) Create(ctx context.Context, h *domain.Habit) error { return nil }
-func (m *MockHabitRepo) ListByUserID(ctx context.Context, u string) ([]*domain.Habit, error) {
-	return nil, nil
+func (m *MockHabitRepo) Create(ctx context.Context, h *domain.Habit) error {
+	return nil
 }
+
+func (m *MockHabitRepo) ListByUserID(ctx context.Context, u string) ([]*domain.Habit, error) {
+	args := m.Called(ctx, u)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.Habit), args.Error(1)
+}
+
 func (m *MockHabitRepo) Update(ctx context.Context, h *domain.Habit) error { return nil }
 func (m *MockHabitRepo) Delete(ctx context.Context, id string) error       { return nil }
 func (m *MockHabitRepo) GetChanges(ctx context.Context, u string, t time.Time) ([]*domain.Habit, error) {
