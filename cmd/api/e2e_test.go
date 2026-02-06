@@ -37,11 +37,6 @@ type listEntryResponse []struct {
 	Value int    `json:"value"`
 }
 
-type authResponse struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-}
-
 type loginResponse struct {
 	Token string `json:"token"`
 	User  struct {
