@@ -23,6 +23,9 @@ func TestNewHabit(t *testing.T) {
 		assert.Equal(t, 1, h.TargetValue)
 		assert.Equal(t, domain.HabitFreqDaily, h.FrequencyType)
 
+		assert.Equal(t, 0, h.CurrentStreak)
+		assert.Equal(t, 0, h.LongestStreak)
+
 		assert.Equal(t, 1, h.Version, "New habits MUST start at Version 1 for Optimistic Locking")
 		assert.Nil(t, h.DeletedAt, "New habits MUST NOT be marked as deleted")
 
@@ -292,6 +295,20 @@ func TestHabit_Lifecycle(t *testing.T) {
 
 		err = habit.Update("Success", "", "", "", domain.HabitTypeBoolean, "", "", 1, 1, nil)
 		assert.Nil(t, err)
+	})
+}
+
+func TestHabit_UpdateStreak(t *testing.T) {
+	t.Run("Success: Update Streak values and timestamp", func(t *testing.T) {
+		habit, _ := domain.NewHabit("Streak Test", "u1")
+		originalTime := habit.UpdatedAt
+		time.Sleep(1 * time.Millisecond)
+
+		habit.UpdateStreak(5, 10)
+
+		assert.Equal(t, 5, habit.CurrentStreak)
+		assert.Equal(t, 10, habit.LongestStreak)
+		assert.True(t, habit.UpdatedAt.After(originalTime), "UpdateStreak must update UpdatedAt")
 	})
 }
 

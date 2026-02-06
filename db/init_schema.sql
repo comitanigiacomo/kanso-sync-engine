@@ -1,11 +1,5 @@
--- -----------------------------------------------------------------------------
--- 0. Setup iniziale: Estensioni e Funzioni di Utilità
--- -----------------------------------------------------------------------------
-
--- Abilita estensione per UUID (se usiamo versioni vecchie di PG, ma gen_random_uuid è built-in dalla v13)
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- Funzione per aggiornare automaticamente il campo updated_at
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -14,12 +8,10 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
--- -----------------------------------------------------------------------------
--- 1. Tabella USERS (Deve essere creata per prima)
--- -----------------------------------------------------------------------------
+-- USERS table
 
 CREATE TABLE IF NOT EXISTS users (
-    id VARCHAR(255) PRIMARY KEY, -- ID esterno (es. Auth0/Firebase) o generato dall'app
+    id VARCHAR(255) PRIMARY KEY,
     email VARCHAR(255) NOT NULL UNIQUE, 
     password_hash TEXT NOT NULL, 
     
@@ -32,16 +24,13 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
--- Trigger per users
 DROP TRIGGER IF EXISTS update_users_updated_at ON users;
 CREATE TRIGGER update_users_updated_at
 BEFORE UPDATE ON users
 FOR EACH ROW
 EXECUTE PROCEDURE update_updated_at_column();
 
--- -----------------------------------------------------------------------------
--- 2. Tabella HABITS (Dipende da Users)
--- -----------------------------------------------------------------------------
+-- HABITS table
 
 CREATE TABLE IF NOT EXISTS habits (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -55,12 +44,15 @@ CREATE TABLE IF NOT EXISTS habits (
     
     type VARCHAR(50) NOT NULL CHECK (type IN ('boolean', 'timer', 'numeric')),
     frequency_type VARCHAR(50) NOT NULL CHECK (frequency_type IN ('daily', 'weekly', 'specific_days', 'interval')),
-    weekdays JSONB, -- Array di giorni per 'specific_days'
+    weekdays JSONB,
     reminder_time VARCHAR(10),
     
     interval INTEGER DEFAULT 1 CHECK (interval > 0),
     target_value INTEGER DEFAULT 1 CHECK (target_value > 0),
     unit VARCHAR(50),
+
+    current_streak INTEGER DEFAULT 0 CHECK (current_streak >= 0),
+    longest_streak INTEGER DEFAULT 0 CHECK (longest_streak >= 0),
     
     start_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     end_date TIMESTAMP WITH TIME ZONE,
@@ -75,21 +67,18 @@ CREATE TABLE IF NOT EXISTS habits (
 CREATE INDEX IF NOT EXISTS idx_habits_user_id ON habits(user_id);
 CREATE INDEX IF NOT EXISTS idx_habits_updated_at ON habits(updated_at);
 
--- Trigger per habits
 DROP TRIGGER IF EXISTS update_habits_updated_at ON habits;
 CREATE TRIGGER update_habits_updated_at
 BEFORE UPDATE ON habits
 FOR EACH ROW
 EXECUTE PROCEDURE update_updated_at_column();
 
--- -----------------------------------------------------------------------------
--- 3. Tabella HABIT ENTRIES (Dipende da Habits)
--- -----------------------------------------------------------------------------
+-- Tabella HABIT ENTRIES TABLE
 
 CREATE TABLE IF NOT EXISTS habit_entries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     habit_id UUID NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
-    user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE, -- Denormalizzato + Integrità
+    user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     
     completion_date TIMESTAMP WITH TIME ZONE NOT NULL,
     value INTEGER DEFAULT 1,
@@ -106,7 +95,6 @@ CREATE TABLE IF NOT EXISTS habit_entries (
 CREATE INDEX IF NOT EXISTS idx_habit_entries_user_updated ON habit_entries(user_id, updated_at);
 CREATE INDEX IF NOT EXISTS idx_habit_entries_habit_date ON habit_entries(habit_id, completion_date);
 
--- Trigger per habit_entries (Aggiunto per coerenza)
 DROP TRIGGER IF EXISTS update_habit_entries_updated_at ON habit_entries;
 CREATE TRIGGER update_habit_entries_updated_at
 BEFORE UPDATE ON habit_entries

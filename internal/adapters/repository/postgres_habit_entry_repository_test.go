@@ -27,7 +27,9 @@ func setupTest(t *testing.T) (*PostgresEntryRepository, *sqlx.DB, func()) {
 	)
 
 	db, err := sqlx.Connect("postgres", dsn)
-	require.NoError(t, err, "Database connection failed")
+	if err != nil {
+		t.Skipf("Database connection failed (skipping integration tests): %v", err)
+	}
 
 	db.MustExec("TRUNCATE TABLE habit_entries, habits, users CASCADE")
 
@@ -56,9 +58,9 @@ func TestPostgresEntryRepository_Integration(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 
 	db.MustExec(`
-		INSERT INTO users (id, email, password_hash, created_at, updated_at) 
-		VALUES ($1, $2, 'dummy_hash_per_test', $3, $3)
-	`, uid, "senior@test.com", now)
+        INSERT INTO users (id, email, password_hash, created_at, updated_at) 
+        VALUES ($1, $2, 'dummy_hash_per_test', $3, $3)
+    `, uid, "senior@test.com", now)
 
 	db.MustExec(`INSERT INTO habits (id, user_id, title, type, frequency_type, start_date, created_at, updated_at) 
         VALUES ($1, $2, $3, $4, $5, $6, $6, $6)`, hid, uid, "Habit Test", "boolean", "daily", now)
@@ -117,7 +119,7 @@ func TestPostgresEntryRepository_Integration(t *testing.T) {
 		assert.ErrorIs(t, err, domain.ErrEntryConflict, "Update must fail if the DB version has already advanced")
 	})
 
-	t.Run("ListByHabitID: Filtering and Range", func(t *testing.T) {
+	t.Run("List Methods: Worker vs API", func(t *testing.T) {
 		localHid := uuid.NewString()
 		db.MustExec(`INSERT INTO habits (id, user_id, title, type, frequency_type, start_date, created_at, updated_at) 
             VALUES ($1, $2, $3, $4, $5, $6, $6, $6)`, localHid, uid, "Isolated Habit", "boolean", "daily", now)
@@ -142,10 +144,14 @@ func TestPostgresEntryRepository_Integration(t *testing.T) {
 
 		from := now.AddDate(0, 0, -3)
 		to := now.AddDate(0, 0, 1)
-		list, err := repo.ListByHabitID(ctx, localHid, from, to)
 
+		apiList, err := repo.ListByHabitIDWithRange(ctx, localHid, from, to)
 		assert.NoError(t, err)
-		assert.Len(t, list, 2, "Should find exactly 2 entries within the specified range")
+		assert.Len(t, apiList, 2, "API should return filtered list (2 items)")
+
+		workerList, err := repo.ListByHabitID(ctx, localHid)
+		assert.NoError(t, err)
+		assert.Len(t, workerList, 3, "Worker should return complete history (3 items)")
 	})
 
 	t.Run("Sync Engine: GetChanges Delta", func(t *testing.T) {

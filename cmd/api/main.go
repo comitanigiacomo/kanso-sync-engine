@@ -17,6 +17,7 @@ import (
 	adapterHTTP "github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/handler/http"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/repository"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/services"
+	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/workers"
 )
 
 func main() {
@@ -69,12 +70,17 @@ func main() {
 	entryRepo := repository.NewPostgresEntryRepository(db)
 	userRepo := repository.NewPostgresUserRepository(db.DB)
 
+	streakWorker := workers.NewStreakWorker(habitRepo, entryRepo)
+
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+	streakWorker.Start(workerCtx)
+
 	tokenService := services.NewTokenService(jwtSecret, jwtIssuer, tokenDuration)
-
 	habitService := services.NewHabitService(habitRepo, rdb)
-
-	entryService := services.NewEntryService(entryRepo, habitRepo)
 	authService := services.NewAuthService(userRepo, tokenService)
+
+	entryService := services.NewEntryService(entryRepo, habitRepo, streakWorker)
 
 	habitHandler := adapterHTTP.NewHabitHandler(habitService)
 	entryHandler := adapterHTTP.NewEntryHandler(entryService)
@@ -110,6 +116,9 @@ func main() {
 	<-quit
 
 	log.Println("Shutting down server...")
+
+	workerCancel()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

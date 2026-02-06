@@ -34,6 +34,9 @@ func (r *PostgresHabitRepository) scanRow(row scannable) (*domain.Habit, error) 
 		&h.ID, &h.UserID, &h.Title, &h.Description, &h.Color, &h.Icon, &h.SortOrder,
 		&h.Type, &h.FrequencyType, &weekdaysJSON, &h.ReminderTime,
 		&h.Interval, &h.TargetValue, &h.Unit,
+
+		&h.CurrentStreak, &h.LongestStreak,
+
 		&h.StartDate, &h.EndDate, &h.ArchivedAt,
 		&h.Version, &h.DeletedAt, &h.CreatedAt, &h.UpdatedAt,
 	)
@@ -61,20 +64,29 @@ func (r *PostgresHabitRepository) Create(ctx context.Context, h *domain.Habit) e
             id, user_id, title, description, color, icon, sort_order,
             type, frequency_type, weekdays, reminder_time,
             interval, target_value, unit,
+            
+            current_streak, longest_streak,
+
             start_date, end_date, archived_at,
             version, deleted_at, created_at, updated_at
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7,
             $8, $9, $10, $11,
             $12, $13, $14,
-            $15, $16, $17,
-            1, NULL, $18, $19
+            
+            $15, $16,
+
+            $17, $18, $19,
+            1, NULL, $20, $21
         )`
 
 	_, err = r.db.ExecContext(ctx, query,
 		h.ID, h.UserID, h.Title, h.Description, h.Color, h.Icon, h.SortOrder,
 		h.Type, h.FrequencyType, weekdaysJSON, h.ReminderTime,
 		h.Interval, h.TargetValue, h.Unit,
+
+		h.CurrentStreak, h.LongestStreak,
+
 		h.StartDate, h.EndDate, h.ArchivedAt,
 		h.CreatedAt, h.UpdatedAt,
 	)
@@ -139,15 +151,21 @@ func (r *PostgresHabitRepository) Update(ctx context.Context, h *domain.Habit) e
             title=$1, description=$2, color=$3, icon=$4, sort_order=$5,
             type=$6, frequency_type=$7, weekdays=$8, reminder_time=$9,
             interval=$10, target_value=$11, unit=$12,
-            end_date=$13, archived_at=$14,
+            
+            current_streak=$13, longest_streak=$14,
+
+            end_date=$15, archived_at=$16,
             updated_at=NOW(), version = version + 1
-        WHERE id=$15 AND version=$16 AND deleted_at IS NULL
+        WHERE id=$17 AND version=$18 AND deleted_at IS NULL
         RETURNING version, updated_at`
 
 	row := r.db.QueryRowContext(ctx, query,
 		h.Title, h.Description, h.Color, h.Icon, h.SortOrder,
 		h.Type, h.FrequencyType, weekdaysJSON, h.ReminderTime,
 		h.Interval, h.TargetValue, h.Unit,
+
+		h.CurrentStreak, h.LongestStreak,
+
 		h.EndDate, h.ArchivedAt,
 		h.ID, h.Version,
 	)

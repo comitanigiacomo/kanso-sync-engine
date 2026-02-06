@@ -94,6 +94,8 @@ func TestPostgresHabitRepository_Integration(t *testing.T) {
 		StartDate:     now,
 		CreatedAt:     now,
 		UpdatedAt:     now,
+		CurrentStreak: 0,
+		LongestStreak: 0,
 	}
 
 	t.Run("Create Habit", func(t *testing.T) {
@@ -106,15 +108,19 @@ func TestPostgresHabitRepository_Integration(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, fetched)
 		assert.Equal(t, newHabit.ID, fetched.ID)
+		assert.Equal(t, 0, fetched.CurrentStreak)
 		assert.Equal(t, 1, fetched.Version, "La versione deve partire da 1")
 		assert.Nil(t, fetched.DeletedAt, "Non deve essere cancellato")
 	})
 
-	t.Run("Update Habit", func(t *testing.T) {
+	t.Run("Update Habit with Streaks", func(t *testing.T) {
 		oldUpdatedAt := newHabit.UpdatedAt
 
 		newHabit.Title = "Updated Title 60k"
 		newHabit.Weekdays = []int{6, 7}
+
+		newHabit.CurrentStreak = 5
+		newHabit.LongestStreak = 10
 
 		time.Sleep(100 * time.Millisecond)
 
@@ -125,7 +131,10 @@ func TestPostgresHabitRepository_Integration(t *testing.T) {
 		assert.NoError(t, err)
 
 		assert.Equal(t, "Updated Title 60k", updated.Title)
-		assert.True(t, updated.UpdatedAt.After(oldUpdatedAt), "Updated_at non è avanzato: Old=%v, New=%v", oldUpdatedAt, updated.UpdatedAt)
+		assert.Equal(t, 5, updated.CurrentStreak)
+		assert.Equal(t, 10, updated.LongestStreak)
+
+		assert.True(t, updated.UpdatedAt.After(oldUpdatedAt), "Updated_at non è avanzato")
 		assert.Equal(t, 2, updated.Version)
 	})
 
@@ -183,6 +192,15 @@ func TestPostgresHabitRepository_Integration(t *testing.T) {
 		}
 		err := repo.Create(ctx, badHabit)
 		assert.Error(t, err)
+	})
+
+	t.Run("Constraint Violation: Negative Streak", func(t *testing.T) {
+		badHabit := &domain.Habit{
+			ID: uuid.New().String(), UserID: userID, Title: "Negative Streak", Type: "boolean", FrequencyType: "daily", StartDate: now, Interval: 1, TargetValue: 1,
+			CurrentStreak: -1,
+		}
+		err := repo.Create(ctx, badHabit)
+		assert.Error(t, err, "Dovrebbe fallire per il CHECK constraint (current_streak >= 0)")
 	})
 
 	t.Run("Optimistic Locking: Prevent Overwrite", func(t *testing.T) {

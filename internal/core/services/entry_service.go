@@ -5,17 +5,20 @@ import (
 	"time"
 
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/domain"
+	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/workers"
 )
 
 type EntryService struct {
 	repo      domain.HabitEntryRepository
 	habitRepo domain.HabitRepository
+	worker    *workers.StreakWorker
 }
 
-func NewEntryService(repo domain.HabitEntryRepository, habitRepo domain.HabitRepository) *EntryService {
+func NewEntryService(repo domain.HabitEntryRepository, habitRepo domain.HabitRepository, worker *workers.StreakWorker) *EntryService {
 	return &EntryService{
 		repo:      repo,
 		habitRepo: habitRepo,
+		worker:    worker,
 	}
 }
 
@@ -55,6 +58,8 @@ func (s *EntryService) Create(ctx context.Context, input CreateEntryInput) (*dom
 		return nil, err
 	}
 
+	s.worker.Enqueue(entry.HabitID)
+
 	return entry, nil
 }
 
@@ -70,12 +75,13 @@ func (s *EntryService) Update(ctx context.Context, input UpdateEntryInput) (*dom
 
 	existing.Value = input.Value
 	existing.Notes = input.Notes
-
 	existing.UpdatedAt = time.Now().UTC()
 
 	if err := s.repo.Update(ctx, existing); err != nil {
 		return nil, err
 	}
+
+	s.worker.Enqueue(existing.HabitID)
 
 	return existing, nil
 }
@@ -100,7 +106,7 @@ func (s *EntryService) ListByHabitID(ctx context.Context, habitID string, userID
 		return nil, domain.ErrUnauthorized
 	}
 
-	return s.repo.ListByHabitID(ctx, habitID, from, to)
+	return s.repo.ListByHabitIDWithRange(ctx, habitID, from, to)
 }
 
 func (s *EntryService) Delete(ctx context.Context, id string, userID string) error {
@@ -113,7 +119,15 @@ func (s *EntryService) Delete(ctx context.Context, id string, userID string) err
 		return domain.ErrUnauthorized
 	}
 
-	return s.repo.Delete(ctx, id, userID)
+	habitID := entry.HabitID
+
+	if err := s.repo.Delete(ctx, id, userID); err != nil {
+		return err
+	}
+
+	s.worker.Enqueue(habitID)
+
+	return nil
 }
 
 func (s *EntryService) GetDelta(ctx context.Context, userID string, since time.Time) ([]*domain.HabitEntry, error) {

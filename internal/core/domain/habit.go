@@ -60,6 +60,9 @@ type Habit struct {
 	TargetValue  int     `json:"target_value" db:"target_value"`
 	Unit         string  `json:"unit" db:"unit"`
 
+	CurrentStreak int `json:"current_streak" db:"current_streak"`
+	LongestStreak int `json:"longest_streak" db:"longest_streak"`
+
 	StartDate  time.Time  `json:"start_date" db:"start_date"`
 	EndDate    *time.Time `json:"end_date,omitempty" db:"end_date"`
 	ArchivedAt *time.Time `json:"archived_at,omitempty" db:"archived_at"`
@@ -205,13 +208,15 @@ func NewHabit(title, userID string) (*Habit, error) {
 	now := time.Now().UTC()
 
 	h := &Habit{
-		ID:        uuid.New().String(),
-		UserID:    userID,
-		SortOrder: 0,
-		CreatedAt: now,
-		UpdatedAt: now,
-		StartDate: now,
-		Version:   1,
+		ID:            uuid.New().String(),
+		UserID:        userID,
+		SortOrder:     0,
+		CurrentStreak: 0,
+		LongestStreak: 0,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+		StartDate:     now,
+		Version:       1,
 	}
 
 	h.applyChanges(data, "")
@@ -233,6 +238,12 @@ func (h *Habit) Update(title, description, color, icon, hType, reminder, unit st
 	h.UpdatedAt = time.Now().UTC()
 
 	return nil
+}
+
+func (h *Habit) UpdateStreak(current, longest int) {
+	h.CurrentStreak = current
+	h.LongestStreak = longest
+	h.UpdatedAt = time.Now().UTC()
 }
 
 func (h *Habit) ChangePosition(newOrder int) error {
