@@ -176,3 +176,78 @@ func TestPostgresEntryRepository_Integration(t *testing.T) {
 		assert.True(t, found, "GetChanges must return records created after the checkpoint")
 	})
 }
+
+func TestPostgresEntryRepository_ListByUserIDAndDateRange(t *testing.T) {
+	repo, db, teardown := setupTest(t)
+	defer teardown()
+
+	ctx := context.Background()
+
+	userID := uuid.NewString()
+	habitID := uuid.NewString()
+	now := time.Now().UTC()
+
+	db.MustExec(`
+        INSERT INTO users (id, email, password_hash, created_at, updated_at) 
+        VALUES ($1, $2, 'stats@test.com', $3, $3)
+    `, userID, "stats-user@test.com", now)
+
+	db.MustExec(`INSERT INTO habits (id, user_id, title, type, frequency_type, start_date, created_at, updated_at) 
+        VALUES ($1, $2, 'Stats Habit', 'numeric', 'daily', $3, $3, $3)`, habitID, userID, now)
+
+	baseDate := time.Date(2024, 1, 10, 12, 0, 0, 0, time.UTC)
+
+	entries := []domain.HabitEntry{
+		{
+			ID:             uuid.NewString(),
+			HabitID:        habitID,
+			UserID:         userID,
+			Value:          10,
+			CompletionDate: baseDate,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+			Version:        1,
+		},
+		{
+			ID:             uuid.NewString(),
+			HabitID:        habitID,
+			UserID:         userID,
+			Value:          20,
+			CompletionDate: baseDate.Add(24 * time.Hour),
+			CreatedAt:      now,
+			UpdatedAt:      now,
+			Version:        1,
+		},
+		{
+			ID:             uuid.NewString(),
+			HabitID:        habitID,
+			UserID:         userID,
+			Value:          5,
+			CompletionDate: baseDate.Add(5 * 24 * time.Hour),
+			CreatedAt:      now,
+			UpdatedAt:      now,
+			Version:        1,
+		},
+	}
+
+	for _, e := range entries {
+		err := repo.Create(ctx, &e)
+		require.NoError(t, err)
+	}
+
+	startDate := baseDate.Add(-24 * time.Hour)
+	endDate := baseDate.Add(48 * time.Hour)
+
+	results, err := repo.ListByUserIDAndDateRange(ctx, userID, startDate, endDate)
+
+	require.NoError(t, err)
+	assert.Len(t, results, 2, "Should return only entries within range")
+
+	foundIDs := make(map[string]bool)
+	for _, r := range results {
+		foundIDs[r.ID] = true
+	}
+	assert.True(t, foundIDs[entries[0].ID])
+	assert.True(t, foundIDs[entries[1].ID])
+	assert.False(t, foundIDs[entries[2].ID])
+}

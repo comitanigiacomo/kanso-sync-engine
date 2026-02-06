@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -184,4 +185,27 @@ func (r *PostgresEntryRepository) exists(ctx context.Context, id string) (bool, 
 	var count int
 	err := r.db.GetContext(ctx, &count, "SELECT count(*) FROM habit_entries WHERE id = $1", id)
 	return count > 0, err
+}
+
+func (r *PostgresEntryRepository) ListByUserIDAndDateRange(ctx context.Context, userID string, startDate, endDate time.Time) ([]domain.HabitEntry, error) {
+	query := `
+		SELECT 
+			id, habit_id, user_id, value, notes, 
+			completion_date, created_at, updated_at, 
+			deleted_at, version
+		FROM habit_entries
+		WHERE user_id = $1 
+		AND completion_date >= $2 
+		AND completion_date <= $3
+		AND deleted_at IS NULL
+		ORDER BY completion_date ASC
+	`
+
+	var entries []domain.HabitEntry
+	err := r.db.SelectContext(ctx, &entries, query, userID, startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("repository: list entries by date range failed: %w", err)
+	}
+
+	return entries, nil
 }
