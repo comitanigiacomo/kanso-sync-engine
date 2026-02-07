@@ -23,6 +23,19 @@ func (h *StatsHandler) RegisterRoutes(r *gin.RouterGroup) {
 	r.GET("/stats/weekly", h.GetWeeklyStats)
 }
 
+// GetWeeklyStats godoc
+// @Summary      Get habit statistics
+// @Description  Returns completion data for a specific date range (default: last 7 days). Max range: 366 days.
+// @Tags         Stats
+// @Produce      json
+// @Security     BearerAuth
+// @Param        start_date query string false "Start Date (YYYY-MM-DD)"
+// @Param        end_date   query string false "End Date (YYYY-MM-DD)"
+// @Success      200  {object}  map[string]interface{} "Returns stats data"
+// @Failure      400  {object}  map[string]string "Invalid Date Format or Range > 1 Year"
+// @Failure      401  {object}  map[string]string "Unauthorized"
+// @Failure      500  {object}  map[string]string "Internal Server Error"
+// @Router       /stats/weekly [get]
 func (h *StatsHandler) GetWeeklyStats(c *gin.Context) {
 	userID := c.GetString(middleware.ContextUserIDKey)
 	if userID == "" {

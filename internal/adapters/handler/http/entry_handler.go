@@ -47,6 +47,18 @@ func (h *EntryHandler) RegisterRoutes(router *gin.RouterGroup) {
 	}
 }
 
+// Create godoc
+// @Summary      Log a habit entry
+// @Description  Record a completion or value for a specific habit on a specific date
+// @Tags         Entries
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        entry body createEntryRequest true "Entry Data"
+// @Success      201  {object}  domain.HabitEntry
+// @Failure      400  {object}  map[string]string "Invalid Input"
+// @Failure      500  {object}  map[string]string "Internal Server Error"
+// @Router       /entries [post]
 func (h *EntryHandler) Create(c *gin.Context) {
 	userID, ok := middleware.GetUserID(c)
 	if !ok {
@@ -77,6 +89,20 @@ func (h *EntryHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, entry)
 }
 
+// Update godoc
+// @Summary      Update an entry value
+// @Description  Change the value or completion status. Requires current version for optimistic locking.
+// @Tags         Entries
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id    path string true "Entry ID"
+// @Param        entry body updateEntryRequest true "Update Data"
+// @Success      200  {object}  domain.HabitEntry
+// @Failure      400  {object}  map[string]string "Invalid Input"
+// @Failure      404  {object}  map[string]string "Entry not found"
+// @Failure      409  {object}  map[string]string "Version Conflict"
+// @Router       /entries/{id} [put]
 func (h *EntryHandler) Update(c *gin.Context) {
 	userID, ok := middleware.GetUserID(c)
 	if !ok {
@@ -108,6 +134,16 @@ func (h *EntryHandler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, entry)
 }
 
+// Delete godoc
+// @Summary      Delete an entry
+// @Description  Permanently remove an entry
+// @Tags         Entries
+// @Security     BearerAuth
+// @Param        id    path string true "Entry ID"
+// @Success      204  "No Content"
+// @Failure      404  {object}  map[string]string "Entry not found"
+// @Failure      500  {object}  map[string]string "Internal Server Error"
+// @Router       /entries/{id} [delete]
 func (h *EntryHandler) Delete(c *gin.Context) {
 	userID, ok := middleware.GetUserID(c)
 	if !ok {
@@ -126,6 +162,18 @@ func (h *EntryHandler) Delete(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// ListByHabit godoc
+// @Summary      List entries for a habit
+// @Description  Get history of entries for a specific habit ID within a date range
+// @Tags         Entries
+// @Produce      json
+// @Security     BearerAuth
+// @Param        habit_id query string true "Habit ID"
+// @Param        from     query string false "Start Date (RFC3339) - Default: 30 days ago"
+// @Param        to       query string false "End Date (RFC3339) - Default: Now"
+// @Success      200  {array}   domain.HabitEntry
+// @Failure      400  {object}  map[string]string "Missing habit_id"
+// @Router       /entries [get]
 func (h *EntryHandler) ListByHabit(c *gin.Context) {
 	userID, ok := middleware.GetUserID(c)
 	if !ok {
@@ -162,6 +210,16 @@ func (h *EntryHandler) ListByHabit(c *gin.Context) {
 	c.JSON(http.StatusOK, list)
 }
 
+// Sync godoc
+// @Summary      Sync entries (Offline-First)
+// @Description  Get entries created or modified since the last sync timestamp
+// @Tags         Entries
+// @Produce      json
+// @Security     BearerAuth
+// @Param        since query string false "Timestamp (RFC3339)"
+// @Success      200  {object}  map[string]interface{} "Returns {changes: [], timestamp: ...}"
+// @Failure      400  {object}  map[string]string "Invalid Date Format"
+// @Router       /entries/sync [get]
 func (h *EntryHandler) Sync(c *gin.Context) {
 	userID, ok := middleware.GetUserID(c)
 	if !ok {

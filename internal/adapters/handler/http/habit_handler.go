@@ -61,6 +61,18 @@ func (h *HabitHandler) RegisterRoutes(router *gin.RouterGroup) {
 	}
 }
 
+// Create godoc
+// @Summary      Create a new habit
+// @Description  Create a habit with title, type, color, frequency, and tracking details
+// @Tags         Habits
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        habit body createHabitRequest true "Habit Data"
+// @Success      201  {object}  domain.Habit
+// @Failure      400  {object}  map[string]string "Validation Error (Title empty, Invalid Color)"
+// @Failure      500  {object}  map[string]string "Internal Server Error"
+// @Router       /habits [post]
 func (h *HabitHandler) Create(c *gin.Context) {
 	userID, ok := middleware.GetUserID(c)
 	if !ok {
@@ -102,6 +114,15 @@ func (h *HabitHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, habit)
 }
 
+// List godoc
+// @Summary      List all habits
+// @Description  Get all active habits for the authenticated user
+// @Tags         Habits
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {array}   domain.Habit
+// @Failure      500  {object}  map[string]string "Internal Server Error"
+// @Router       /habits [get]
 func (h *HabitHandler) List(c *gin.Context) {
 	userID, ok := middleware.GetUserID(c)
 	if !ok {
@@ -118,6 +139,17 @@ func (h *HabitHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, list)
 }
 
+// Sync godoc
+// @Summary      Sync habits (Offline-First)
+// @Description  Get habits created, updated, or deleted since the provided timestamp
+// @Tags         Habits
+// @Produce      json
+// @Security     BearerAuth
+// @Param        last_sync query string false "Timestamp (RFC3339 format)"
+// @Success      200  {object}  map[string]interface{} "Returns {changes: delta, timestamp: now}"
+// @Failure      400  {object}  map[string]string "Invalid Timestamp Format"
+// @Failure      500  {object}  map[string]string "Internal Server Error"
+// @Router       /habits/sync [get]
 func (h *HabitHandler) Sync(c *gin.Context) {
 	userID, ok := middleware.GetUserID(c)
 	if !ok {
@@ -149,6 +181,21 @@ func (h *HabitHandler) Sync(c *gin.Context) {
 	})
 }
 
+// Update godoc
+// @Summary      Update a habit
+// @Description  Modify an existing habit. Requires 'version' for optimistic locking.
+// @Tags         Habits
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id    path string true "Habit ID"
+// @Param        habit body updateHabitRequest true "Update Data"
+// @Success      200  "OK"
+// @Failure      400  {object}  map[string]string "Invalid Input"
+// @Failure      404  {object}  map[string]string "Habit Not Found"
+// @Failure      409  {object}  map[string]string "Version Conflict (Data modified elsewhere)"
+// @Failure      500  {object}  map[string]string "Internal Server Error"
+// @Router       /habits/{id} [put]
 func (h *HabitHandler) Update(c *gin.Context) {
 	userID, ok := middleware.GetUserID(c)
 	if !ok {
@@ -206,6 +253,16 @@ func (h *HabitHandler) Update(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
+// Delete godoc
+// @Summary      Soft-delete a habit
+// @Description  Mark a habit as deleted (archived)
+// @Tags         Habits
+// @Security     BearerAuth
+// @Param        id    path string true "Habit ID"
+// @Success      204  "No Content"
+// @Failure      404  {object}  map[string]string "Habit Not Found"
+// @Failure      500  {object}  map[string]string "Internal Server Error"
+// @Router       /habits/{id} [delete]
 func (h *HabitHandler) Delete(c *gin.Context) {
 	userID, ok := middleware.GetUserID(c)
 	if !ok {

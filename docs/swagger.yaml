@@ -1,0 +1,691 @@
+basePath: /api/v1
+definitions:
+  github_com_comitanigiacomo_kanso-sync-engine_internal_core_domain.Habit:
+    properties:
+      archived_at:
+        type: string
+      color:
+        type: string
+      created_at:
+        type: string
+      current_streak:
+        type: integer
+      deleted_at:
+        type: string
+      description:
+        type: string
+      end_date:
+        type: string
+      frequency_type:
+        type: string
+      icon:
+        type: string
+      id:
+        type: string
+      interval:
+        type: integer
+      longest_streak:
+        type: integer
+      reminder_time:
+        type: string
+      sort_order:
+        type: integer
+      start_date:
+        type: string
+      target_value:
+        type: integer
+      title:
+        type: string
+      type:
+        type: string
+      unit:
+        type: string
+      updated_at:
+        type: string
+      user_id:
+        type: string
+      version:
+        type: integer
+      weekdays:
+        items:
+          type: integer
+        type: array
+    type: object
+  github_com_comitanigiacomo_kanso-sync-engine_internal_core_domain.HabitEntry:
+    properties:
+      completion_date:
+        type: string
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      habit_id:
+        type: string
+      id:
+        type: string
+      notes:
+        type: string
+      updated_at:
+        type: string
+      user_id:
+        type: string
+      value:
+        type: integer
+      version:
+        type: integer
+    type: object
+  internal_adapters_handler_http.createEntryRequest:
+    properties:
+      completion_date:
+        type: string
+      habit_id:
+        type: string
+      notes:
+        type: string
+      value:
+        type: integer
+    required:
+    - completion_date
+    - habit_id
+    type: object
+  internal_adapters_handler_http.createHabitRequest:
+    properties:
+      color:
+        type: string
+      description:
+        type: string
+      frequency_type:
+        type: string
+      icon:
+        type: string
+      interval:
+        type: integer
+      reminder_time:
+        type: string
+      target_value:
+        type: integer
+      title:
+        type: string
+      type:
+        type: string
+      unit:
+        type: string
+      weekdays:
+        items:
+          type: integer
+        type: array
+    required:
+    - title
+    type: object
+  internal_adapters_handler_http.loginRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  internal_adapters_handler_http.loginResponse:
+    properties:
+      token:
+        type: string
+      user:
+        properties:
+          email:
+            type: string
+          id:
+            type: string
+        type: object
+    type: object
+  internal_adapters_handler_http.registerRequest:
+    properties:
+      email:
+        type: string
+      password:
+        minLength: 8
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  internal_adapters_handler_http.updateEntryRequest:
+    properties:
+      notes:
+        type: string
+      value:
+        type: integer
+      version:
+        type: integer
+    required:
+    - version
+    type: object
+  internal_adapters_handler_http.updateHabitRequest:
+    properties:
+      color:
+        type: string
+      description:
+        type: string
+      frequency_type:
+        type: string
+      icon:
+        type: string
+      interval:
+        type: integer
+      reminder_time:
+        type: string
+      target_value:
+        type: integer
+      title:
+        type: string
+      type:
+        type: string
+      unit:
+        type: string
+      version:
+        type: integer
+      weekdays:
+        items:
+          type: integer
+        type: array
+    type: object
+  internal_adapters_handler_http.userResponse:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact:
+    name: Giacomo Comitani
+    url: https://github.com/comitanigiacomo
+  description: |-
+    Backend for the Kanso Habit Tracker application.
+    Features include offline-first sync, streak calculation, and JWT authentication.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  title: Kanso Sync Engine API
+  version: "1.0"
+paths:
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticates a user and returns a JWT token
+      parameters:
+      - description: Login Credentials
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_adapters_handler_http.loginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_adapters_handler_http.loginResponse'
+        "400":
+          description: Invalid Input
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Invalid Credentials
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: User Login
+      tags:
+      - Auth
+  /auth/register:
+    post:
+      consumes:
+      - application/json
+      description: Create a new user account with email and password
+      parameters:
+      - description: Registration Data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_adapters_handler_http.registerRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_adapters_handler_http.userResponse'
+        "400":
+          description: Invalid Input / Password too short
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Email already exists
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Register a new user
+      tags:
+      - Auth
+  /entries:
+    get:
+      description: Get history of entries for a specific habit ID within a date range
+      parameters:
+      - description: Habit ID
+        in: query
+        name: habit_id
+        required: true
+        type: string
+      - description: 'Start Date (RFC3339) - Default: 30 days ago'
+        in: query
+        name: from
+        type: string
+      - description: 'End Date (RFC3339) - Default: Now'
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_comitanigiacomo_kanso-sync-engine_internal_core_domain.HabitEntry'
+            type: array
+        "400":
+          description: Missing habit_id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List entries for a habit
+      tags:
+      - Entries
+    post:
+      consumes:
+      - application/json
+      description: Record a completion or value for a specific habit on a specific
+        date
+      parameters:
+      - description: Entry Data
+        in: body
+        name: entry
+        required: true
+        schema:
+          $ref: '#/definitions/internal_adapters_handler_http.createEntryRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_comitanigiacomo_kanso-sync-engine_internal_core_domain.HabitEntry'
+        "400":
+          description: Invalid Input
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Log a habit entry
+      tags:
+      - Entries
+  /entries/{id}:
+    delete:
+      description: Permanently remove an entry
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Entry not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete an entry
+      tags:
+      - Entries
+    put:
+      consumes:
+      - application/json
+      description: Change the value or completion status. Requires current version
+        for optimistic locking.
+      parameters:
+      - description: Entry ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Update Data
+        in: body
+        name: entry
+        required: true
+        schema:
+          $ref: '#/definitions/internal_adapters_handler_http.updateEntryRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_comitanigiacomo_kanso-sync-engine_internal_core_domain.HabitEntry'
+        "400":
+          description: Invalid Input
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Entry not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Version Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update an entry value
+      tags:
+      - Entries
+  /entries/sync:
+    get:
+      description: Get entries created or modified since the last sync timestamp
+      parameters:
+      - description: Timestamp (RFC3339)
+        in: query
+        name: since
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 'Returns {changes: [], timestamp: ...}'
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid Date Format
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Sync entries (Offline-First)
+      tags:
+      - Entries
+  /habits:
+    get:
+      description: Get all active habits for the authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_comitanigiacomo_kanso-sync-engine_internal_core_domain.Habit'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List all habits
+      tags:
+      - Habits
+    post:
+      consumes:
+      - application/json
+      description: Create a habit with title, type, color, frequency, and tracking
+        details
+      parameters:
+      - description: Habit Data
+        in: body
+        name: habit
+        required: true
+        schema:
+          $ref: '#/definitions/internal_adapters_handler_http.createHabitRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_comitanigiacomo_kanso-sync-engine_internal_core_domain.Habit'
+        "400":
+          description: Validation Error (Title empty, Invalid Color)
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a new habit
+      tags:
+      - Habits
+  /habits/{id}:
+    delete:
+      description: Mark a habit as deleted (archived)
+      parameters:
+      - description: Habit ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Habit Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Soft-delete a habit
+      tags:
+      - Habits
+    put:
+      consumes:
+      - application/json
+      description: Modify an existing habit. Requires 'version' for optimistic locking.
+      parameters:
+      - description: Habit ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Update Data
+        in: body
+        name: habit
+        required: true
+        schema:
+          $ref: '#/definitions/internal_adapters_handler_http.updateHabitRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Invalid Input
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Habit Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Version Conflict (Data modified elsewhere)
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update a habit
+      tags:
+      - Habits
+  /habits/sync:
+    get:
+      description: Get habits created, updated, or deleted since the provided timestamp
+      parameters:
+      - description: Timestamp (RFC3339 format)
+        in: query
+        name: last_sync
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 'Returns {changes: delta, timestamp: now}'
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid Timestamp Format
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Sync habits (Offline-First)
+      tags:
+      - Habits
+  /stats/weekly:
+    get:
+      description: 'Returns completion data for a specific date range (default: last
+        7 days). Max range: 366 days.'
+      parameters:
+      - description: Start Date (YYYY-MM-DD)
+        in: query
+        name: start_date
+        type: string
+      - description: End Date (YYYY-MM-DD)
+        in: query
+        name: end_date
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Returns stats data
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid Date Format or Range > 1 Year
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get habit statistics
+      tags:
+      - Stats
+securityDefinitions:
+  BearerAuth:
+    description: Type "Bearer" followed by a space and the JWT token.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
