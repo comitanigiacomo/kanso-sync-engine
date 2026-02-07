@@ -12,9 +12,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func ptr[T any](v T) *T {
+	return &v
+}
+
 func newTestService(repo domain.HabitRepository) *services.HabitService {
 	rdb := redis.NewClient(&redis.Options{
-		Addr: "localhost:0",
+		Addr: "localhost:6379",
 	})
 	return services.NewHabitService(repo, rdb)
 }
@@ -52,7 +56,8 @@ func (m *MockRepo) GetByID(ctx context.Context, id string) (*domain.Habit, error
 	if h.DeletedAt != nil {
 		return nil, domain.ErrHabitNotFound
 	}
-	return h, nil
+	clone := *h
+	return &clone, nil
 }
 
 func (m *MockRepo) ListByUserID(ctx context.Context, userID string) ([]*domain.Habit, error) {
@@ -62,7 +67,8 @@ func (m *MockRepo) ListByUserID(ctx context.Context, userID string) ([]*domain.H
 	var list []*domain.Habit
 	for _, h := range m.store {
 		if h.UserID == userID && h.DeletedAt == nil {
-			list = append(list, h)
+			clone := *h
+			list = append(list, &clone)
 		}
 	}
 	return list, nil
@@ -147,6 +153,7 @@ func TestHabitService_Create(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, created)
 		assert.Equal(t, "Read Book", created.Title)
+		assert.Equal(t, 1, created.Version)
 
 		stored, _ := repo.GetByID(ctx, created.ID)
 		assert.NotNil(t, stored)
@@ -198,12 +205,13 @@ func TestHabitService_Update(t *testing.T) {
 		updateInput := services.UpdateHabitInput{
 			ID:          existing.ID,
 			UserID:      "user-1",
-			Title:       "New Title",
-			Description: "Updated desc",
-			Color:       "#FFFFFF",
-			Type:        domain.HabitTypeBoolean,
-			TargetValue: 1,
-			Interval:    1,
+			Title:       ptr("New Title"),
+			Description: ptr("Updated desc"),
+			Color:       ptr("#FFFFFF"),
+			Type:        ptr(domain.HabitTypeBoolean),
+			TargetValue: ptr(1),
+			Interval:    ptr(1),
+			Version:     1,
 		}
 
 		err := svc.Update(context.Background(), updateInput)
@@ -213,6 +221,30 @@ func TestHabitService_Update(t *testing.T) {
 		updated, _ := repo.GetByID(context.Background(), existing.ID)
 		assert.Equal(t, "New Title", updated.Title)
 		assert.Equal(t, "#FFFFFF", updated.Color)
+		assert.Equal(t, 2, updated.Version)
+	})
+
+	t.Run("Success: Should CLEAR description (set to empty string)", func(t *testing.T) {
+		repo := NewMockRepo()
+		svc := newTestService(repo)
+
+		existing, _ := domain.NewHabit("Title", "user-1")
+		existing.Description = "I should be deleted"
+		existing.Version = 1
+		repo.Create(context.Background(), existing)
+
+		updateInput := services.UpdateHabitInput{
+			ID:          existing.ID,
+			UserID:      "user-1",
+			Description: ptr(""),
+			Version:     1,
+		}
+
+		err := svc.Update(context.Background(), updateInput)
+		assert.NoError(t, err)
+
+		updated, _ := repo.GetByID(context.Background(), existing.ID)
+		assert.Equal(t, "", updated.Description)
 	})
 
 	t.Run("Fail: Security - Cannot update other user's habit (IDOR)", func(t *testing.T) {
@@ -225,7 +257,7 @@ func TestHabitService_Update(t *testing.T) {
 		updateInput := services.UpdateHabitInput{
 			ID:     existing.ID,
 			UserID: "user-2",
-			Title:  "Hacked Title",
+			Title:  ptr("Hacked Title"),
 		}
 
 		err := svc.Update(context.Background(), updateInput)
@@ -243,7 +275,7 @@ func TestHabitService_Update(t *testing.T) {
 		input := services.UpdateHabitInput{
 			ID:     "ghost-id",
 			UserID: "user-1",
-			Title:  "New Title",
+			Title:  ptr("New Title"),
 		}
 
 		err := svc.Update(context.Background(), input)
@@ -256,13 +288,15 @@ func TestHabitService_Update(t *testing.T) {
 		svc := newTestService(repo)
 
 		existing, _ := domain.NewHabit("Valid", "u1")
+		existing.Version = 1
 		repo.Create(context.Background(), existing)
 
 		input := services.UpdateHabitInput{
-			ID:     existing.ID,
-			UserID: "u1",
-			Title:  "Valid",
-			Color:  "INVALID-COLOR",
+			ID:      existing.ID,
+			UserID:  "u1",
+			Title:   ptr("Valid"),
+			Color:   ptr("INVALID-COLOR"),
+			Version: 1,
 		}
 
 		err := svc.Update(context.Background(), input)
@@ -281,9 +315,10 @@ func TestHabitService_Update(t *testing.T) {
 		repo.Create(context.Background(), existing)
 
 		input := services.UpdateHabitInput{
-			ID:     existing.ID,
-			UserID: "u1",
-			Title:  "Updated Title Only",
+			ID:      existing.ID,
+			UserID:  "u1",
+			Title:   ptr("Updated Title Only"),
+			Version: 1,
 		}
 
 		err := svc.Update(context.Background(), input)
@@ -356,9 +391,13 @@ func TestHabitService_ListAndGet(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.Len(t, list, 2)
-		ids := []string{list[0].ID, list[1].ID}
-		assert.Contains(t, ids, h1.ID)
-		assert.Contains(t, ids, h2.ID)
+		foundIDs := make(map[string]bool)
+		for _, h := range list {
+			foundIDs[h.ID] = true
+		}
+		assert.True(t, foundIDs[h1.ID])
+		assert.True(t, foundIDs[h2.ID])
+		assert.False(t, foundIDs[h3.ID])
 	})
 
 	t.Run("ListByUserID returns empty for new user", func(t *testing.T) {
@@ -380,7 +419,7 @@ func TestHabitService_SyncLogic(t *testing.T) {
 		input := services.UpdateHabitInput{
 			ID:      existing.ID,
 			UserID:  "user-1",
-			Title:   "Override attempt",
+			Title:   ptr("Override attempt"),
 			Version: 1,
 		}
 
@@ -399,6 +438,7 @@ func TestHabitService_SyncLogic(t *testing.T) {
 		repo.Create(ctx, h1)
 
 		lastSync := time.Now()
+		time.Sleep(1 * time.Millisecond)
 
 		h2, _ := domain.NewHabit("New", "user-1")
 		h2.UpdatedAt = time.Now().Add(1 * time.Minute)
