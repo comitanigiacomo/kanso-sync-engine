@@ -42,6 +42,18 @@ type loginResponse struct {
 	} `json:"user"`
 }
 
+// Register godoc
+// @Summary      Register a new user
+// @Description  Create a new user account with email and password
+// @Tags         Auth
+// @Accept       json
+// @Produce      json
+// @Param        request body registerRequest true "Registration Data"
+// @Success      201  {object}  userResponse
+// @Failure      400  {object}  map[string]string "Invalid Input / Password too short"
+// @Failure      409  {object}  map[string]string "Email already exists"
+// @Failure      500  {object}  map[string]string "Internal Server Error"
+// @Router       /auth/register [post]
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req registerRequest
 
@@ -77,6 +89,18 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	})
 }
 
+// Login godoc
+// @Summary      User Login
+// @Description  Authenticates a user and returns a JWT token
+// @Tags         Auth
+// @Accept       json
+// @Produce      json
+// @Param        request body loginRequest true "Login Credentials"
+// @Success      200  {object}  loginResponse
+// @Failure      400  {object}  map[string]string "Invalid Input"
+// @Failure      401  {object}  map[string]string "Invalid Credentials"
+// @Failure      500  {object}  map[string]string "Internal Server Error"
+// @Router       /auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req loginRequest
 

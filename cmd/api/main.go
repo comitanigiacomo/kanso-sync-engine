@@ -20,6 +20,24 @@ import (
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/workers"
 )
 
+// @title           Kanso Sync Engine API
+// @version         1.0
+// @description     Backend for the Kanso Habit Tracker application.
+// @description     Features include offline-first sync, streak calculation, and JWT authentication.
+
+// @contact.name   Giacomo Comitani
+// @contact.url    https://github.com/comitanigiacomo
+
+// @license.name  MIT
+// @license.url   https://opensource.org/licenses/MIT
+
+// @host      localhost:8080
+// @BasePath  /api/v1
+
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Type "Bearer" followed by a space and the JWT token.
 func main() {
 	startTime := time.Now()
 

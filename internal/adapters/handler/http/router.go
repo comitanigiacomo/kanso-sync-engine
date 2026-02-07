@@ -7,6 +7,11 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/redis/go-redis/v9"
 
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
+
+	_ "github.com/comitanigiacomo/kanso-sync-engine/docs"
+
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/handler/http/middleware"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/services"
 )
@@ -25,6 +30,7 @@ type RouterDependencies struct {
 func NewRouter(deps RouterDependencies) *gin.Engine {
 	router := gin.Default()
 
+	// Global Middleware
 	router.Use(func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
@@ -40,6 +46,11 @@ func NewRouter(deps RouterDependencies) *gin.Engine {
 		router.Use(middleware.RateLimiterMiddleware(deps.Redis, 100, 1*time.Minute))
 	}
 
+	// Swagger Documentation Endpoint
+	// Accessible on: http://localhost:8080/swagger/index.html
+	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+
+	// System Health Check
 	router.GET("/health", func(c *gin.Context) {
 		dbStatus := "connected"
 		if err := deps.DB.Ping(); err != nil {
@@ -64,16 +75,18 @@ func NewRouter(deps RouterDependencies) *gin.Engine {
 		})
 	})
 
+	// API Versioning
 	apiV1 := router.Group("/api/v1")
 
+	// Public Routes
 	deps.AuthHandler.RegisterRoutes(apiV1)
 
+	// Protected Routes (Require JWT)
 	protected := apiV1.Group("")
 	protected.Use(middleware.AuthMiddleware(deps.TokenService))
 	{
 		deps.HabitHandler.RegisterRoutes(protected)
 		deps.EntryHandler.RegisterRoutes(protected)
-
 		deps.StatsHandler.RegisterRoutes(protected)
 	}
 
