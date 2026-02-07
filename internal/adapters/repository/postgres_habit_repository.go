@@ -242,3 +242,29 @@ func (r *PostgresHabitRepository) GetChanges(ctx context.Context, userID string,
 
 	return habits, nil
 }
+
+func (r *PostgresHabitRepository) UpdateStreaks(ctx context.Context, id string, current, longest int) error {
+	query := `
+		UPDATE habits 
+		SET current_streak = $1, 
+		    longest_streak = $2, 
+		    updated_at = NOW()
+		WHERE id = $3
+	`
+
+	result, err := r.db.ExecContext(ctx, query, current, longest, id)
+	if err != nil {
+		return fmt.Errorf("failed to update streaks: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+
+	if rows == 0 {
+		return domain.ErrHabitNotFound
+	}
+
+	return nil
+}
