@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/handler/http/middleware" // <--- IMPORTANTE
+	"github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/handler/http/middleware"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/domain"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/services"
 	"github.com/gin-gonic/gin"
@@ -36,18 +36,18 @@ type createHabitRequest struct {
 }
 
 type updateHabitRequest struct {
-	Title         string `json:"title"`
-	Description   string `json:"description"`
-	Color         string `json:"color"`
-	Icon          string `json:"icon"`
-	Type          string `json:"type"`
-	ReminderTime  string `json:"reminder_time"`
-	Unit          string `json:"unit"`
-	TargetValue   int    `json:"target_value"`
-	Interval      int    `json:"interval"`
-	Weekdays      []int  `json:"weekdays"`
-	FrequencyType string `json:"frequency_type"`
-	Version       int    `json:"version"`
+	Title         *string `json:"title"`
+	Description   *string `json:"description"`
+	Color         *string `json:"color"`
+	Icon          *string `json:"icon"`
+	Type          *string `json:"type"`
+	ReminderTime  *string `json:"reminder_time"`
+	Unit          *string `json:"unit"`
+	TargetValue   *int    `json:"target_value"`
+	Interval      *int    `json:"interval"`
+	Weekdays      []int   `json:"weekdays"`
+	FrequencyType *string `json:"frequency_type"`
+	Version       int     `json:"version" binding:"required"`
 }
 
 func (h *HabitHandler) RegisterRoutes(router *gin.RouterGroup) {

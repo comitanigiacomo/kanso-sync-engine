@@ -51,25 +51,18 @@ type CreateHabitInput struct {
 type UpdateHabitInput struct {
 	ID            string
 	UserID        string
-	Title         string
-	Description   string
-	Color         string
-	Icon          string
-	Type          string
-	ReminderTime  string
-	Unit          string
-	TargetValue   int
-	Interval      int
+	Title         *string
+	Description   *string
+	Color         *string
+	Icon          *string
+	Type          *string
+	ReminderTime  *string
+	Unit          *string
+	TargetValue   *int
+	Interval      *int
 	Weekdays      []int
-	FrequencyType string
+	FrequencyType *string
 	Version       int
-}
-
-func mergeString(newVal, oldVal string) string {
-	if newVal == "" {
-		return oldVal
-	}
-	return newVal
 }
 
 func (s *HabitService) Create(ctx context.Context, input CreateHabitInput) (*domain.Habit, error) {
@@ -78,8 +71,6 @@ func (s *HabitService) Create(ctx context.Context, input CreateHabitInput) (*dom
 		return nil, err
 	}
 
-	finalType := mergeString(input.Type, habit.Type)
-
 	if input.Interval < 1 {
 		input.Interval = 1
 	}
@@ -87,12 +78,17 @@ func (s *HabitService) Create(ctx context.Context, input CreateHabitInput) (*dom
 		input.TargetValue = 1
 	}
 
+	habitType := input.Type
+	if habitType == "" {
+		habitType = domain.HabitTypeBoolean
+	}
+
 	err = habit.Update(
 		input.Title,
 		input.Description,
 		input.Color,
 		input.Icon,
-		finalType,
+		habitType,
 		input.ReminderTime,
 		input.Unit,
 		input.TargetValue,
@@ -105,8 +101,8 @@ func (s *HabitService) Create(ctx context.Context, input CreateHabitInput) (*dom
 
 	if input.FrequencyType != "" {
 		habit.FrequencyType = input.FrequencyType
-	} else if habit.FrequencyType == "" {
-		habit.FrequencyType = "daily"
+	} else {
+		habit.FrequencyType = domain.HabitFreqDaily
 	}
 
 	if err := s.repo.Create(ctx, habit); err != nil {
@@ -160,45 +156,69 @@ func (s *HabitService) Update(ctx context.Context, input UpdateHabitInput) error
 		return fmt.Errorf("%w: client v%d vs server v%d", domain.ErrHabitConflict, input.Version, habit.Version)
 	}
 
-	title := mergeString(input.Title, habit.Title)
-	desc := mergeString(input.Description, habit.Description)
-	color := mergeString(input.Color, habit.Color)
-	icon := mergeString(input.Icon, habit.Icon)
-	hType := mergeString(input.Type, habit.Type)
-
-	target := habit.TargetValue
-	if input.TargetValue > 0 {
-		target = input.TargetValue
+	if input.Title != nil {
+		habit.Title = *input.Title
+	}
+	if input.Description != nil {
+		habit.Description = *input.Description
+	}
+	if input.Color != nil {
+		habit.Color = *input.Color
+	}
+	if input.Icon != nil {
+		habit.Icon = *input.Icon
+	}
+	if input.Type != nil {
+		habit.Type = *input.Type
 	}
 
-	interval := habit.Interval
-	if input.Interval > 0 {
-		interval = input.Interval
+	if input.TargetValue != nil {
+		if *input.TargetValue > 0 {
+			habit.TargetValue = *input.TargetValue
+		}
 	}
 
-	weekdays := habit.Weekdays
+	if input.Interval != nil {
+		if *input.Interval > 0 {
+			habit.Interval = *input.Interval
+		}
+	}
+
 	if input.Weekdays != nil {
-		weekdays = input.Weekdays
+		habit.Weekdays = input.Weekdays
+	}
+
+	var reminderStringToPass string
+	if input.ReminderTime != nil {
+		reminderStringToPass = *input.ReminderTime
+	} else {
+		if habit.ReminderTime != nil {
+			reminderStringToPass = *habit.ReminderTime
+		}
+	}
+
+	if input.Unit != nil {
+		habit.Unit = *input.Unit
 	}
 
 	err = habit.Update(
-		title,
-		desc,
-		color,
-		icon,
-		hType,
-		input.ReminderTime,
-		input.Unit,
-		target,
-		interval,
-		weekdays,
+		habit.Title,
+		habit.Description,
+		habit.Color,
+		habit.Icon,
+		habit.Type,
+		reminderStringToPass,
+		habit.Unit,
+		habit.TargetValue,
+		habit.Interval,
+		habit.Weekdays,
 	)
 	if err != nil {
 		return err
 	}
 
-	if input.FrequencyType != "" {
-		habit.FrequencyType = input.FrequencyType
+	if input.FrequencyType != nil {
+		habit.FrequencyType = *input.FrequencyType
 	}
 
 	if err := s.repo.Update(ctx, habit); err != nil {

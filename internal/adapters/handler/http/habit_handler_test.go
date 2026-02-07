@@ -3,6 +3,7 @@ package http_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -30,7 +31,8 @@ func (m *MockRepo) Create(ctx context.Context, h *domain.Habit) error {
 	if h.Version == 0 {
 		h.Version = 1
 	}
-	m.store[h.ID] = h
+	clone := *h
+	m.store[h.ID] = &clone
 	return nil
 }
 
@@ -42,14 +44,16 @@ func (m *MockRepo) GetByID(ctx context.Context, id string) (*domain.Habit, error
 	if h.DeletedAt != nil {
 		return nil, domain.ErrHabitNotFound
 	}
-	return h, nil
+	clone := *h
+	return &clone, nil
 }
 
 func (m *MockRepo) ListByUserID(ctx context.Context, userID string) ([]*domain.Habit, error) {
 	var list []*domain.Habit
 	for _, h := range m.store {
 		if h.UserID == userID && h.DeletedAt == nil {
-			list = append(list, h)
+			clone := *h
+			list = append(list, &clone)
 		}
 	}
 	return list, nil
@@ -67,7 +71,9 @@ func (m *MockRepo) Update(ctx context.Context, h *domain.Habit) error {
 
 	h.Version++
 	h.UpdatedAt = time.Now().UTC()
-	m.store[h.ID] = h
+
+	clone := *h
+	m.store[h.ID] = &clone
 	return nil
 }
 
@@ -87,7 +93,8 @@ func (m *MockRepo) GetChanges(ctx context.Context, userID string, since time.Tim
 	var changes []*domain.Habit
 	for _, h := range m.store {
 		if h.UserID == userID && h.UpdatedAt.After(since) {
-			changes = append(changes, h)
+			clone := *h
+			changes = append(changes, &clone)
 		}
 	}
 	return changes, nil
@@ -110,11 +117,10 @@ func setupRouter() (*gin.Engine, *MockRepo) {
 	repo := NewMockRepo()
 
 	rdb := redis.NewClient(&redis.Options{
-		Addr: "localhost:0",
+		Addr: "localhost:6379",
 	})
 
 	svc := services.NewHabitService(repo, rdb)
-
 	handler := adapterHTTP.NewHabitHandler(svc)
 
 	r := gin.New()
@@ -214,6 +220,29 @@ func TestUpdateHabit(t *testing.T) {
 		assert.Equal(t, 2, updated.Version)
 	})
 
+	t.Run("Success: Clear Description (JSON empty string)", func(t *testing.T) {
+		router, repo := setupRouter()
+		h, _ := domain.NewHabit("To Clear", "user-1")
+		h.Description = "Must be deleted"
+		h.Version = 1
+		repo.Create(context.Background(), h)
+
+		body := `{
+            "description": "",
+            "version": 1 
+        }`
+
+		req, _ := http.NewRequest("PUT", "/api/v1/habits/"+h.ID, bytes.NewBufferString(body))
+		req.Header.Set("X-User-ID", "user-1")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		updated, _ := repo.GetByID(context.Background(), h.ID)
+		assert.Equal(t, "", updated.Description)
+	})
+
 	t.Run("Fail: 404 Not Found (IDOR Protection)", func(t *testing.T) {
 		router, repo := setupRouter()
 		h, _ := domain.NewHabit("Secret", "user-1")
@@ -259,6 +288,8 @@ func TestSyncEndpoint(t *testing.T) {
 	lastSyncTime := time.Now().UTC().Add(-1 * time.Hour)
 	lastSyncStr := lastSyncTime.Format(time.RFC3339)
 
+	time.Sleep(1 * time.Millisecond)
+
 	hNew, _ := domain.NewHabit("New", "user-1")
 	hNew.UpdatedAt = time.Now().UTC()
 	repo.Create(ctx, hNew)
@@ -269,16 +300,14 @@ func TestSyncEndpoint(t *testing.T) {
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
-		if w.Code != http.StatusOK {
-			t.Logf("Response Body: %s", w.Body.String())
-		}
-
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		body := w.Body.String()
-		assert.Contains(t, body, hNew.ID)
-		assert.NotContains(t, body, hOld.ID)
-		assert.Contains(t, body, "timestamp")
+		var response map[string]interface{}
+		_ = json.Unmarshal(w.Body.Bytes(), &response)
+
+		assert.Contains(t, w.Body.String(), hNew.ID)
+		assert.NotContains(t, w.Body.String(), hOld.ID)
+		assert.Contains(t, response, "timestamp")
 	})
 }
 
@@ -295,7 +324,9 @@ func TestDeleteHabit(t *testing.T) {
 
 		assert.Equal(t, http.StatusNoContent, w.Code)
 
-		deletedH := repo.store[h.ID]
-		assert.NotNil(t, deletedH.DeletedAt)
+		deletedH, err := repo.GetByID(context.Background(), h.ID)
+
+		assert.ErrorIs(t, err, domain.ErrHabitNotFound)
+		assert.Nil(t, deletedH)
 	})
 }
