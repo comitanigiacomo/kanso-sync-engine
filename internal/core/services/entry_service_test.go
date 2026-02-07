@@ -103,6 +103,10 @@ func (m *MockHabitRepo) GetChanges(ctx context.Context, u string, t time.Time) (
 	return nil, nil
 }
 
+func (m *MockHabitRepo) UpdateStreaks(ctx context.Context, id string, current, longest int) error {
+	return nil
+}
+
 func getTestWorker() *workers.StreakWorker {
 	return workers.NewStreakWorker(nil, nil)
 }
@@ -181,7 +185,7 @@ func TestEntryService_Update(t *testing.T) {
 	t.Run("Success: Should update valid entry", func(t *testing.T) {
 		entryRepo := new(MockHabitEntryRepo)
 		worker := getTestWorker()
-		svc := services.NewEntryService(entryRepo, nil, worker)
+		svc := services.NewEntryService(entryRepo, new(MockHabitRepo), worker)
 
 		existing := &domain.HabitEntry{ID: entryID, HabitID: "habit-1", UserID: uid, Value: 5, Version: 1}
 
@@ -201,7 +205,7 @@ func TestEntryService_Update(t *testing.T) {
 	t.Run("Concurrency: Should fail if version conflict", func(t *testing.T) {
 		entryRepo := new(MockHabitEntryRepo)
 		worker := getTestWorker()
-		svc := services.NewEntryService(entryRepo, nil, worker)
+		svc := services.NewEntryService(entryRepo, new(MockHabitRepo), worker)
 
 		existing := &domain.HabitEntry{ID: entryID, UserID: uid, Value: 5, Version: 2}
 		entryRepo.On("GetByID", ctx, entryID).Return(existing, nil)
@@ -217,7 +221,7 @@ func TestEntryService_Update(t *testing.T) {
 	t.Run("Security: Should fail if updating entry of another user", func(t *testing.T) {
 		entryRepo := new(MockHabitEntryRepo)
 		worker := getTestWorker()
-		svc := services.NewEntryService(entryRepo, nil, worker)
+		svc := services.NewEntryService(entryRepo, new(MockHabitRepo), worker)
 
 		existing := &domain.HabitEntry{ID: entryID, UserID: "victim", Value: 5}
 		entryRepo.On("GetByID", ctx, entryID).Return(existing, nil)
@@ -238,7 +242,7 @@ func TestEntryService_Delete(t *testing.T) {
 	t.Run("Success: Should delete owned entry", func(t *testing.T) {
 		entryRepo := new(MockHabitEntryRepo)
 		worker := getTestWorker()
-		svc := services.NewEntryService(entryRepo, nil, worker)
+		svc := services.NewEntryService(entryRepo, new(MockHabitRepo), worker)
 
 		entryRepo.On("GetByID", ctx, entryID).Return(&domain.HabitEntry{ID: entryID, HabitID: "habit-1", UserID: uid}, nil)
 		entryRepo.On("Delete", ctx, entryID, uid).Return(nil)
@@ -251,7 +255,7 @@ func TestEntryService_Delete(t *testing.T) {
 	t.Run("Security: Should return Unauthorized if user mismatch", func(t *testing.T) {
 		entryRepo := new(MockHabitEntryRepo)
 		worker := getTestWorker()
-		svc := services.NewEntryService(entryRepo, nil, worker)
+		svc := services.NewEntryService(entryRepo, new(MockHabitRepo), worker)
 
 		entryRepo.On("GetByID", ctx, entryID).Return(&domain.HabitEntry{ID: entryID, UserID: "owner"}, nil)
 
@@ -263,7 +267,7 @@ func TestEntryService_Delete(t *testing.T) {
 	t.Run("Fail: Should return NotFound if entry doesn't exist", func(t *testing.T) {
 		entryRepo := new(MockHabitEntryRepo)
 		worker := getTestWorker()
-		svc := services.NewEntryService(entryRepo, nil, worker)
+		svc := services.NewEntryService(entryRepo, new(MockHabitRepo), worker)
 
 		entryRepo.On("GetByID", ctx, entryID).Return(nil, domain.ErrEntryNotFound)
 
@@ -280,7 +284,7 @@ func TestEntryService_GetDelta(t *testing.T) {
 	t.Run("Success: Should propagate sync parameters to repo", func(t *testing.T) {
 		entryRepo := new(MockHabitEntryRepo)
 		worker := getTestWorker()
-		svc := services.NewEntryService(entryRepo, nil, worker)
+		svc := services.NewEntryService(entryRepo, new(MockHabitRepo), worker)
 
 		expectedList := []*domain.HabitEntry{{ID: "1"}, {ID: "2"}}
 		entryRepo.On("GetChanges", ctx, uid, since).Return(expectedList, nil)
@@ -301,7 +305,7 @@ func TestEntryService_GetByID(t *testing.T) {
 	t.Run("Success: Should return entry if owned by user", func(t *testing.T) {
 		entryRepo := new(MockHabitEntryRepo)
 		worker := getTestWorker()
-		svc := services.NewEntryService(entryRepo, nil, worker)
+		svc := services.NewEntryService(entryRepo, new(MockHabitRepo), worker)
 
 		expected := &domain.HabitEntry{ID: entryID, UserID: uid, Value: 10}
 		entryRepo.On("GetByID", ctx, entryID).Return(expected, nil)
@@ -315,7 +319,7 @@ func TestEntryService_GetByID(t *testing.T) {
 	t.Run("Security: Should prevent reading other users' entries", func(t *testing.T) {
 		entryRepo := new(MockHabitEntryRepo)
 		worker := getTestWorker()
-		svc := services.NewEntryService(entryRepo, nil, worker)
+		svc := services.NewEntryService(entryRepo, new(MockHabitRepo), worker)
 
 		found := &domain.HabitEntry{ID: entryID, UserID: "other-user"}
 		entryRepo.On("GetByID", ctx, entryID).Return(found, nil)

@@ -8,16 +8,11 @@ import (
 
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/domain"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/services"
-	"github.com/redis/go-redis/v9" // Import necessario
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 )
 
-// --- Helper per correggere i test senza toccare la logica ---
-// Crea un service con un Redis che fallisce subito (Fail Open).
-// Così testiamo solo la logica di business e il repository.
 func newTestService(repo domain.HabitRepository) *services.HabitService {
-	// Puntiamo a una porta inesistente per simulare "Redis Down"
-	// Il service è progettato per funzionare comunque (Fail Open)
 	rdb := redis.NewClient(&redis.Options{
 		Addr: "localhost:0",
 	})
@@ -121,10 +116,24 @@ func (m *MockRepo) GetChanges(ctx context.Context, userID string, since time.Tim
 	return changes, nil
 }
 
+func (m *MockRepo) UpdateStreaks(ctx context.Context, id string, current, longest int) error {
+	if m.simulateError != nil {
+		return m.simulateError
+	}
+	h, ok := m.store[id]
+	if !ok {
+		return domain.ErrHabitNotFound
+	}
+	h.CurrentStreak = current
+	h.LongestStreak = longest
+	h.UpdatedAt = time.Now().UTC()
+	return nil
+}
+
 func TestHabitService_Create(t *testing.T) {
 	t.Run("Success: Should create and persist a valid habit", func(t *testing.T) {
 		repo := NewMockRepo()
-		svc := newTestService(repo) // USIAMO L'HELPER
+		svc := newTestService(repo)
 		ctx := context.Background()
 
 		input := services.CreateHabitInput{

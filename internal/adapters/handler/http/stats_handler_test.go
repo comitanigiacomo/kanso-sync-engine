@@ -40,6 +40,10 @@ func (m *MockHabitRepoForStats) GetChanges(ctx context.Context, u string, t time
 	return nil, nil
 }
 
+func (m *MockHabitRepoForStats) UpdateStreaks(ctx context.Context, id string, current, longest int) error {
+	return nil
+}
+
 func setupStatsRouter() (*gin.Engine, *MockHabitRepoForStats, *MockEntryRepo) {
 	gin.SetMode(gin.TestMode)
 

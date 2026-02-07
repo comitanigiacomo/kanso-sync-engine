@@ -28,4 +28,6 @@ type HabitRepository interface {
 
 	// GetChanges [SYNC] Returns only the deltas (changes) occurring after a specific date.
 	GetChanges(ctx context.Context, userID string, since time.Time) ([]*Habit, error)
+
+	UpdateStreaks(ctx context.Context, id string, current, longest int) error
 }

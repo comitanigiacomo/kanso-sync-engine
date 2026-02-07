@@ -12,6 +12,7 @@ import (
 type HabitRepository interface {
 	GetByID(ctx context.Context, id string) (*domain.Habit, error)
 	Update(ctx context.Context, habit *domain.Habit) error
+	UpdateStreaks(ctx context.Context, id string, current, longest int) error
 }
 
 type EntryRepository interface {
@@ -75,8 +76,7 @@ func (w *StreakWorker) processJob(ctx context.Context, job StreakJob) {
 	current, longest := calculateStreaks(entries)
 
 	if habit.CurrentStreak != current || habit.LongestStreak != longest {
-		habit.UpdateStreak(current, longest)
-		if err := w.habitRepo.Update(ctx, habit); err != nil {
+		if err := w.habitRepo.UpdateStreaks(ctx, job.HabitID, current, longest); err != nil {
 			log.Printf("Worker Failed to update streak for %s: %v", job.HabitID, err)
 		} else {
 			log.Printf("Streak updated for %s: Current=%d, Longest=%d", habit.Title, current, longest)
