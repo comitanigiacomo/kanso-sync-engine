@@ -1,5 +1,5 @@
 # --- Stage 1: Builder ---
-FROM golang:1.25-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 RUN apk add --no-cache git
 
@@ -10,16 +10,22 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o kanso-api ./cmd/api
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o kanso-api ./cmd/api
 
-# --- Stage 2: Runner ---
+# --- Stage 2: Runner (Production Image) ---
 FROM alpine:latest
 
 RUN apk --no-cache add ca-certificates tzdata
 
-WORKDIR /root/
+RUN addgroup -S kanso && adduser -S kanso -G kanso
+
+WORKDIR /app
 
 COPY --from=builder /app/kanso-api .
+
+RUN chown kanso:kanso ./kanso-api
+
+USER kanso
 
 EXPOSE 8080
 
