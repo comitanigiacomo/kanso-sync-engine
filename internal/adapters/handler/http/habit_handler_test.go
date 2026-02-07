@@ -295,7 +295,7 @@ func TestDeleteHabit(t *testing.T) {
 
 		assert.Equal(t, http.StatusNoContent, w.Code)
 
-		deletedH, _ := repo.store[h.ID]
+		deletedH := repo.store[h.ID]
 		assert.NotNil(t, deletedH.DeletedAt)
 	})
 }
