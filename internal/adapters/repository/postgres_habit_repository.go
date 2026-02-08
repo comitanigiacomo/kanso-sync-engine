@@ -31,14 +31,29 @@ func (r *PostgresHabitRepository) scanRow(row scannable) (*domain.Habit, error) 
 	var weekdaysJSON []byte
 
 	err := row.Scan(
-		&h.ID, &h.UserID, &h.Title, &h.Description, &h.Color, &h.Icon, &h.SortOrder,
-		&h.Type, &h.FrequencyType, &weekdaysJSON, &h.ReminderTime,
-		&h.Interval, &h.TargetValue, &h.Unit,
-
-		&h.CurrentStreak, &h.LongestStreak,
-
-		&h.StartDate, &h.EndDate, &h.ArchivedAt,
-		&h.Version, &h.DeletedAt, &h.CreatedAt, &h.UpdatedAt,
+		&h.ID,
+		&h.UserID,
+		&h.Title,
+		&h.Description,
+		&h.Color,
+		&h.Icon,
+		&h.SortOrder,
+		&h.Type,
+		&h.FrequencyType,
+		&weekdaysJSON,
+		&h.ReminderTime,
+		&h.Interval,
+		&h.TargetValue,
+		&h.Unit,
+		&h.CurrentStreak,
+		&h.LongestStreak,
+		&h.StartDate,
+		&h.EndDate,
+		&h.ArchivedAt,
+		&h.Version,
+		&h.DeletedAt,
+		&h.CreatedAt,
+		&h.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -52,6 +67,15 @@ func (r *PostgresHabitRepository) scanRow(row scannable) (*domain.Habit, error) 
 
 	return &h, nil
 }
+
+const selectColumns = `
+	id, user_id, title, description, color, icon, sort_order,
+	type, frequency_type, weekdays, reminder_time,
+	interval, target_value, unit,
+	current_streak, longest_streak,
+	start_date, end_date, archived_at,
+	version, deleted_at, created_at, updated_at
+`
 
 func (r *PostgresHabitRepository) Create(ctx context.Context, h *domain.Habit) error {
 	weekdaysJSON, err := json.Marshal(h.Weekdays)
@@ -100,7 +124,7 @@ func (r *PostgresHabitRepository) Create(ctx context.Context, h *domain.Habit) e
 }
 
 func (r *PostgresHabitRepository) GetByID(ctx context.Context, id string) (*domain.Habit, error) {
-	query := `SELECT * FROM habits WHERE id = $1 AND deleted_at IS NULL`
+	query := fmt.Sprintf(`SELECT %s FROM habits WHERE id = $1 AND deleted_at IS NULL`, selectColumns)
 
 	row := r.db.QueryRowContext(ctx, query, id)
 
@@ -116,10 +140,10 @@ func (r *PostgresHabitRepository) GetByID(ctx context.Context, id string) (*doma
 }
 
 func (r *PostgresHabitRepository) ListByUserID(ctx context.Context, userID string) ([]*domain.Habit, error) {
-	query := `
-        SELECT * FROM habits 
+	query := fmt.Sprintf(`
+        SELECT %s FROM habits 
         WHERE user_id = $1 AND deleted_at IS NULL 
-        ORDER BY sort_order ASC, created_at DESC`
+        ORDER BY sort_order ASC, created_at DESC`, selectColumns)
 
 	rows, err := r.db.QueryContext(ctx, query, userID)
 	if err != nil {
@@ -155,8 +179,10 @@ func (r *PostgresHabitRepository) Update(ctx context.Context, h *domain.Habit) e
             current_streak=$13, longest_streak=$14,
 
             end_date=$15, archived_at=$16,
-            updated_at=NOW(), version = version + 1
-        WHERE id=$17 AND version=$18 AND deleted_at IS NULL
+            deleted_at=$19,
+            updated_at=NOW(), 
+            version = $18
+        WHERE id=$17 AND version = $18 - 1
         RETURNING version, updated_at`
 
 	row := r.db.QueryRowContext(ctx, query,
@@ -168,6 +194,7 @@ func (r *PostgresHabitRepository) Update(ctx context.Context, h *domain.Habit) e
 
 		h.EndDate, h.ArchivedAt,
 		h.ID, h.Version,
+		h.DeletedAt,
 	)
 
 	var newVersion int
@@ -178,9 +205,7 @@ func (r *PostgresHabitRepository) Update(ctx context.Context, h *domain.Habit) e
 		if errors.Is(err, sql.ErrNoRows) {
 			existsQuery := `SELECT count(*) FROM habits WHERE id = $1`
 			var count int
-			if checkErr := r.db.QueryRowContext(ctx, existsQuery, h.ID).Scan(&count); checkErr != nil {
-				return fmt.Errorf("existence check failed: %w", checkErr)
-			}
+			_ = r.db.QueryRowContext(ctx, existsQuery, h.ID).Scan(&count)
 
 			if count == 0 {
 				return domain.ErrHabitNotFound
@@ -219,10 +244,10 @@ func (r *PostgresHabitRepository) Delete(ctx context.Context, id string) error {
 }
 
 func (r *PostgresHabitRepository) GetChanges(ctx context.Context, userID string, since time.Time) ([]*domain.Habit, error) {
-	query := `
-        SELECT * FROM habits 
+	query := fmt.Sprintf(`
+        SELECT %s FROM habits 
         WHERE user_id = $1 AND updated_at > $2
-        ORDER BY updated_at ASC`
+        ORDER BY updated_at ASC`, selectColumns)
 
 	rows, err := r.db.QueryContext(ctx, query, userID, since)
 	if err != nil {
@@ -245,12 +270,13 @@ func (r *PostgresHabitRepository) GetChanges(ctx context.Context, userID string,
 
 func (r *PostgresHabitRepository) UpdateStreaks(ctx context.Context, id string, current, longest int) error {
 	query := `
-		UPDATE habits 
-		SET current_streak = $1, 
-		    longest_streak = $2, 
-		    updated_at = NOW()
-		WHERE id = $3
-	`
+        UPDATE habits 
+        SET current_streak = $1, 
+            longest_streak = $2, 
+            updated_at = NOW(),
+            version = version + 1 
+        WHERE id = $3
+    `
 
 	result, err := r.db.ExecContext(ctx, query, current, longest, id)
 	if err != nil {
