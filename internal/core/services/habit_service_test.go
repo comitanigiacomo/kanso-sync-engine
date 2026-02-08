@@ -8,7 +8,6 @@ import (
 
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/domain"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/services"
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -17,10 +16,7 @@ func ptr[T any](v T) *T {
 }
 
 func newTestService(repo domain.HabitRepository) *services.HabitService {
-	rdb := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
-	})
-	return services.NewHabitService(repo, rdb)
+	return services.NewHabitService(repo)
 }
 
 type MockRepo struct {
@@ -41,7 +37,8 @@ func (m *MockRepo) Create(ctx context.Context, habit *domain.Habit) error {
 	if habit.Version == 0 {
 		habit.Version = 1
 	}
-	m.store[habit.ID] = habit
+	clone := *habit
+	m.store[habit.ID] = &clone
 	return nil
 }
 
@@ -83,14 +80,12 @@ func (m *MockRepo) Update(ctx context.Context, habit *domain.Habit) error {
 		return domain.ErrHabitNotFound
 	}
 
-	if habit.Version != existing.Version {
-		return domain.ErrHabitConflict
+	if existing.DeletedAt != nil {
+		return domain.ErrHabitNotFound
 	}
 
-	habit.Version++
-	habit.UpdatedAt = time.Now().UTC()
-
-	m.store[habit.ID] = habit
+	clone := *habit
+	m.store[habit.ID] = &clone
 	return nil
 }
 
@@ -98,17 +93,14 @@ func (m *MockRepo) Delete(ctx context.Context, id string) error {
 	if m.simulateError != nil {
 		return m.simulateError
 	}
-
 	h, ok := m.store[id]
 	if !ok {
 		return domain.ErrHabitNotFound
 	}
-
 	now := time.Now().UTC()
 	h.DeletedAt = &now
 	h.Version++
 	h.UpdatedAt = now
-
 	return nil
 }
 
@@ -116,7 +108,8 @@ func (m *MockRepo) GetChanges(ctx context.Context, userID string, since time.Tim
 	var changes []*domain.Habit
 	for _, h := range m.store {
 		if h.UserID == userID && h.UpdatedAt.After(since) {
-			changes = append(changes, h)
+			clone := *h
+			changes = append(changes, &clone)
 		}
 	}
 	return changes, nil
@@ -334,7 +327,7 @@ func TestHabitService_Update(t *testing.T) {
 }
 
 func TestHabitService_Delete(t *testing.T) {
-	t.Run("Success: Should delete own habit", func(t *testing.T) {
+	t.Run("Success: Should soft-delete via Update", func(t *testing.T) {
 		repo := NewMockRepo()
 		svc := newTestService(repo)
 
@@ -347,6 +340,9 @@ func TestHabitService_Delete(t *testing.T) {
 
 		_, err = repo.GetByID(context.Background(), h.ID)
 		assert.Equal(t, domain.ErrHabitNotFound, err)
+
+		rawH := repo.store[h.ID]
+		assert.NotNil(t, rawH.DeletedAt)
 	})
 
 	t.Run("Fail: Security - Cannot delete other user's habit (IDOR)", func(t *testing.T) {
