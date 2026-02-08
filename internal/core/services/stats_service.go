@@ -20,15 +20,18 @@ func NewStatsService(habitRepo domain.HabitRepository, entryRepo domain.HabitEnt
 }
 
 func (s *StatsService) GetWeeklyStats(ctx context.Context, input domain.StatsInput) (*domain.WeeklyStats, error) {
-	startDate := input.StartDate.Truncate(24 * time.Hour)
-	endDate := input.EndDate.Truncate(24 * time.Hour).Add(24 * time.Hour).Add(-1 * time.Nanosecond)
+	localStart := time.Date(input.StartDate.Year(), input.StartDate.Month(), input.StartDate.Day(), 0, 0, 0, 0, input.Location)
+	localEnd := time.Date(input.EndDate.Year(), input.EndDate.Month(), input.EndDate.Day(), 23, 59, 59, 999999999, input.Location)
+
+	dbStart := localStart.UTC()
+	dbEnd := localEnd.UTC()
 
 	habits, err := s.habitRepo.ListByUserID(ctx, input.UserID)
 	if err != nil {
 		return nil, err
 	}
 
-	entries, err := s.entryRepo.ListByUserIDAndDateRange(ctx, input.UserID, startDate, endDate)
+	entries, err := s.entryRepo.ListByUserIDAndDateRange(ctx, input.UserID, dbStart, dbEnd)
 	if err != nil {
 		return nil, err
 	}
@@ -38,13 +41,16 @@ func (s *StatsService) GetWeeklyStats(ctx context.Context, input domain.StatsInp
 		if _, exists := entriesMap[e.HabitID]; !exists {
 			entriesMap[e.HabitID] = make(map[string]int)
 		}
-		dateKey := e.CompletionDate.Format("2006-01-02")
+
+		localTime := e.CompletionDate.In(input.Location)
+		dateKey := localTime.Format("2006-01-02")
+
 		entriesMap[e.HabitID][dateKey] += e.Value
 	}
 
 	stats := &domain.WeeklyStats{
-		StartDate:   startDate.Format("2006-01-02"),
-		EndDate:     endDate.Format("2006-01-02"),
+		StartDate:   localStart.Format("2006-01-02"),
+		EndDate:     localEnd.Format("2006-01-02"),
 		TotalHabits: len(habits),
 		HabitStats:  make([]domain.HabitStat, 0, len(habits)),
 	}
@@ -66,8 +72,8 @@ func (s *StatsService) GetWeeklyStats(ctx context.Context, input domain.StatsInp
 		daysInPeriod := 0
 		daysAchieved := 0
 
-		currentDate := startDate
-		for !currentDate.After(endDate) {
+		currentDate := localStart
+		for !currentDate.After(localEnd) {
 			dateKey := currentDate.Format("2006-01-02")
 
 			val := entriesMap[h.ID][dateKey]

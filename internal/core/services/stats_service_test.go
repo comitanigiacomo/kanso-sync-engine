@@ -18,8 +18,10 @@ func TestStatsService_GetWeeklyStats(t *testing.T) {
 	ctx := context.Background()
 	userID := "user-stats-1"
 
-	startDate := time.Date(2024, 1, 10, 0, 0, 0, 0, time.UTC)
-	endDate := time.Date(2024, 1, 12, 0, 0, 0, 0, time.UTC)
+	utc := time.UTC
+
+	startDate := time.Date(2024, 1, 10, 0, 0, 0, 0, utc)
+	endDate := time.Date(2024, 1, 12, 0, 0, 0, 0, utc)
 
 	t.Run("Success: Calculates rates and fills missing days correctly", func(t *testing.T) {
 		habitRepo := new(MockHabitRepo)
@@ -33,20 +35,19 @@ func TestStatsService_GetWeeklyStats(t *testing.T) {
 		}
 		habitRepo.On("ListByUserID", ctx, userID).Return(habits, nil)
 
-		expectedEndDate := endDate.Truncate(24 * time.Hour).Add(24 * time.Hour).Add(-1 * time.Nanosecond)
-
 		entries := []domain.HabitEntry{
 			{ID: "e1", HabitID: "h1", UserID: userID, Value: 2500, CompletionDate: startDate},
 			{ID: "e2", HabitID: "h1", UserID: userID, Value: 500, CompletionDate: endDate},
 			{ID: "e3", HabitID: "h2", UserID: userID, Value: 5, CompletionDate: endDate},
 		}
 
-		entryRepo.On("ListByUserIDAndDateRange", ctx, userID, startDate, expectedEndDate).Return(entries, nil)
+		entryRepo.On("ListByUserIDAndDateRange", ctx, userID, mock.Anything, mock.Anything).Return(entries, nil)
 
 		input := domain.StatsInput{
 			UserID:    userID,
 			StartDate: startDate,
 			EndDate:   endDate,
+			Location:  utc,
 		}
 		stats, err := svc.GetWeeklyStats(ctx, input)
 
@@ -75,6 +76,47 @@ func TestStatsService_GetWeeklyStats(t *testing.T) {
 		assert.InDelta(t, 33.33, stats.OverallRate, 0.1)
 	})
 
+	t.Run("Timezone: Shifts Late Night UTC entries to Previous Day Local", func(t *testing.T) {
+
+		habitRepo := new(MockHabitRepo)
+		entryRepo := new(MockHabitEntryRepo)
+		svc := services.NewStatsService(habitRepo, entryRepo)
+
+		nyLoc := time.FixedZone("America/New_York", -5*60*60)
+
+		targetDate := time.Date(2024, 1, 10, 0, 0, 0, 0, nyLoc)
+
+		habits := []*domain.Habit{
+			{ID: "h1", UserID: userID, Title: "Night Owl", TargetValue: 1},
+		}
+		habitRepo.On("ListByUserID", ctx, userID).Return(habits, nil)
+
+		lateNightEntry := domain.HabitEntry{
+			ID:             "e1",
+			HabitID:        "h1",
+			UserID:         userID,
+			Value:          1,
+			CompletionDate: time.Date(2024, 1, 11, 4, 0, 0, 0, time.UTC),
+		}
+
+		entryRepo.On("ListByUserIDAndDateRange", ctx, userID, mock.Anything, mock.Anything).Return([]domain.HabitEntry{lateNightEntry}, nil)
+
+		input := domain.StatsInput{
+			UserID:    userID,
+			StartDate: targetDate,
+			EndDate:   targetDate,
+			Location:  nyLoc,
+		}
+
+		stats, err := svc.GetWeeklyStats(ctx, input)
+		require.NoError(t, err)
+
+		h1 := findHabitStat(stats.HabitStats, "h1")
+
+		assert.Equal(t, 1, h1.TotalValue, "Should count the entry despite being next day in UTC")
+		assert.Equal(t, []int{1}, h1.DailyProgress)
+	})
+
 	t.Run("Edge Case: No Habits returns zero stats", func(t *testing.T) {
 		habitRepo := new(MockHabitRepo)
 		entryRepo := new(MockHabitEntryRepo)
@@ -83,7 +125,7 @@ func TestStatsService_GetWeeklyStats(t *testing.T) {
 		habitRepo.On("ListByUserID", ctx, userID).Return([]*domain.Habit{}, nil)
 		entryRepo.On("ListByUserIDAndDateRange", ctx, userID, mock.Anything, mock.Anything).Return([]domain.HabitEntry{}, nil)
 
-		input := domain.StatsInput{UserID: userID, StartDate: startDate, EndDate: endDate}
+		input := domain.StatsInput{UserID: userID, StartDate: startDate, EndDate: endDate, Location: utc}
 		stats, err := svc.GetWeeklyStats(ctx, input)
 
 		require.NoError(t, err)
@@ -100,7 +142,7 @@ func TestStatsService_GetWeeklyStats(t *testing.T) {
 		dbErr := errors.New("db connection lost")
 		habitRepo.On("ListByUserID", ctx, userID).Return(nil, dbErr)
 
-		input := domain.StatsInput{UserID: userID, StartDate: startDate, EndDate: endDate}
+		input := domain.StatsInput{UserID: userID, StartDate: startDate, EndDate: endDate, Location: utc}
 		stats, err := svc.GetWeeklyStats(ctx, input)
 
 		assert.ErrorIs(t, err, dbErr)
@@ -118,7 +160,7 @@ func TestStatsService_GetWeeklyStats(t *testing.T) {
 		dbErr := errors.New("query timeout")
 		entryRepo.On("ListByUserIDAndDateRange", ctx, userID, mock.Anything, mock.Anything).Return(nil, dbErr)
 
-		input := domain.StatsInput{UserID: userID, StartDate: startDate, EndDate: endDate}
+		input := domain.StatsInput{UserID: userID, StartDate: startDate, EndDate: endDate, Location: utc}
 		stats, err := svc.GetWeeklyStats(ctx, input)
 
 		assert.ErrorIs(t, err, dbErr)

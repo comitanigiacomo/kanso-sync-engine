@@ -14,8 +14,6 @@ import (
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/workers"
 )
 
-// --- MOCKS ---
-
 type MockHabitEntryRepo struct {
 	mock.Mock
 }
@@ -109,12 +107,9 @@ func (m *MockHabitRepo) UpdateStreaks(ctx context.Context, id string, current, l
 	return nil
 }
 
-// Helper per i test
 func getTestWorker() *workers.StreakWorker {
 	return workers.NewStreakWorker(nil, nil)
 }
-
-// --- TESTS ---
 
 func TestEntryService_Create(t *testing.T) {
 	ctx := context.Background()
@@ -192,17 +187,14 @@ func TestEntryService_Update(t *testing.T) {
 		worker := getTestWorker()
 		svc := services.NewEntryService(entryRepo, new(MockHabitRepo), worker)
 
-		// Stato iniziale: Versione 1
 		existing := &domain.HabitEntry{ID: entryID, HabitID: "habit-1", UserID: uid, Value: 5, Version: 1}
 
 		entryRepo.On("GetByID", ctx, entryID).Return(existing, nil)
 
-		// FIX: Qui verifichiamo che il Service abbia incrementato la versione (da 1 a 2)
-		// e abbia settato una data aggiornata
 		entryRepo.On("Update", ctx, mock.MatchedBy(func(e *domain.HabitEntry) bool {
-			versionOK := e.Version == 2 // 1 (old) + 1 (new)
+			versionOK := e.Version == 2
 			valueOK := e.Value == 10
-			dateOK := !e.UpdatedAt.IsZero() // Deve essere stata aggiornata
+			dateOK := !e.UpdatedAt.IsZero()
 			return versionOK && valueOK && dateOK
 		})).Return(nil)
 
@@ -211,7 +203,7 @@ func TestEntryService_Update(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, 10, updated.Value)
-		assert.Equal(t, 2, updated.Version) // Verifichiamo anche il ritorno
+		assert.Equal(t, 2, updated.Version)
 		entryRepo.AssertExpectations(t)
 	})
 
@@ -220,11 +212,9 @@ func TestEntryService_Update(t *testing.T) {
 		worker := getTestWorker()
 		svc := services.NewEntryService(entryRepo, new(MockHabitRepo), worker)
 
-		// Sul DB c'è la versione 2
 		existing := &domain.HabitEntry{ID: entryID, UserID: uid, Value: 5, Version: 2}
 		entryRepo.On("GetByID", ctx, entryID).Return(existing, nil)
 
-		// Il client prova ad aggiornare passando Version 1
 		input := services.UpdateEntryInput{ID: entryID, UserID: uid, Value: 10, Version: 1}
 
 		_, err := svc.Update(ctx, input)
