@@ -27,4 +27,5 @@ type StatsInput struct {
 	UserID    string
 	StartDate time.Time
 	EndDate   time.Time
+	Location  *time.Location
 }

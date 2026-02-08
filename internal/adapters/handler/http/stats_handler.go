@@ -25,22 +25,34 @@ func (h *StatsHandler) RegisterRoutes(r *gin.RouterGroup) {
 
 // GetWeeklyStats godoc
 // @Summary      Get habit statistics
-// @Description  Returns completion data for a specific date range (default: last 7 days). Max range: 366 days.
+// @Description  Returns completion data respecting user timezone.
 // @Tags         Stats
 // @Produce      json
 // @Security     BearerAuth
 // @Param        start_date query string false "Start Date (YYYY-MM-DD)"
 // @Param        end_date   query string false "End Date (YYYY-MM-DD)"
-// @Success      200  {object}  map[string]interface{} "Returns stats data"
-// @Failure      400  {object}  map[string]string "Invalid Date Format or Range > 1 Year"
+// @Param        X-Timezone header string false "User Timezone (e.g. Europe/Rome). Defaults to UTC."
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string "Invalid Date/Timezone"
 // @Failure      401  {object}  map[string]string "Unauthorized"
 // @Failure      500  {object}  map[string]string "Internal Server Error"
 // @Router       /stats/weekly [get]
 func (h *StatsHandler) GetWeeklyStats(c *gin.Context) {
-	userID := c.GetString(middleware.ContextUserIDKey)
-	if userID == "" {
+	userID, ok := middleware.GetUserID(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
+	}
+
+	tzHeader := c.GetHeader("X-Timezone")
+	location := time.UTC
+	if tzHeader != "" {
+		loc, err := time.LoadLocation(tzHeader)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid timezone format (use IANA name like 'Europe/Rome')"})
+			return
+		}
+		location = loc
 	}
 
 	endDateStr := c.Query("end_date")
@@ -50,9 +62,9 @@ func (h *StatsHandler) GetWeeklyStats(c *gin.Context) {
 	var err error
 
 	if endDateStr == "" {
-		endDate = time.Now().UTC()
+		endDate = time.Now().In(location)
 	} else {
-		endDate, err = time.Parse("2006-01-02", endDateStr)
+		endDate, err = time.ParseInLocation("2006-01-02", endDateStr, location)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid end_date format, expected YYYY-MM-DD"})
 			return
@@ -62,7 +74,7 @@ func (h *StatsHandler) GetWeeklyStats(c *gin.Context) {
 	if startDateStr == "" {
 		startDate = endDate.AddDate(0, 0, -6)
 	} else {
-		startDate, err = time.Parse("2006-01-02", startDateStr)
+		startDate, err = time.ParseInLocation("2006-01-02", startDateStr, location)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid start_date format, expected YYYY-MM-DD"})
 			return
@@ -74,7 +86,7 @@ func (h *StatsHandler) GetWeeklyStats(c *gin.Context) {
 		return
 	}
 
-	const maxDaysRange = 366 // Max 1 anno
+	const maxDaysRange = 366
 	daysDiff := endDate.Sub(startDate).Hours() / 24
 	if daysDiff > maxDaysRange {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "date range too large, max 1 year allowed"})
@@ -85,6 +97,7 @@ func (h *StatsHandler) GetWeeklyStats(c *gin.Context) {
 		UserID:    userID,
 		StartDate: startDate,
 		EndDate:   endDate,
+		Location:  location,
 	}
 
 	stats, err := h.svc.GetWeeklyStats(c.Request.Context(), input)
