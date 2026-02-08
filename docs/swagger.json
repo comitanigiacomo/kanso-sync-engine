@@ -36,7 +36,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_handler_http.loginRequest"
+                            "$ref": "#/definitions/http.loginRequest"
                         }
                     }
                 ],
@@ -44,7 +44,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_handler_http.loginResponse"
+                            "$ref": "#/definitions/http.loginResponse"
                         }
                     },
                     "400": {
@@ -97,7 +97,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_handler_http.registerRequest"
+                            "$ref": "#/definitions/http.registerRequest"
                         }
                     }
                 ],
@@ -105,7 +105,7 @@
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_handler_http.userResponse"
+                            "$ref": "#/definitions/http.userResponse"
                         }
                     },
                     "400": {
@@ -180,7 +180,7 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_comitanigiacomo_kanso-sync-engine_internal_core_domain.HabitEntry"
+                                "$ref": "#/definitions/domain.HabitEntry"
                             }
                         }
                     },
@@ -219,7 +219,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_handler_http.createEntryRequest"
+                            "$ref": "#/definitions/http.createEntryRequest"
                         }
                     }
                 ],
@@ -227,7 +227,7 @@
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/github_com_comitanigiacomo_kanso-sync-engine_internal_core_domain.HabitEntry"
+                            "$ref": "#/definitions/domain.HabitEntry"
                         }
                     },
                     "400": {
@@ -258,7 +258,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Get entries created or modified since the last sync timestamp",
+                "description": "Get entries created or modified since the last sync cursor.",
                 "produces": [
                     "application/json"
                 ],
@@ -269,14 +269,14 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Timestamp (RFC3339)",
+                        "description": "Last Sync Cursor (RFC3339)",
                         "name": "since",
                         "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "Returns {changes: [], timestamp: ...}",
+                        "description": "Returns {changes: [], timestamp: NextCursor}",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -326,7 +326,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_handler_http.updateEntryRequest"
+                            "$ref": "#/definitions/http.updateEntryRequest"
                         }
                     }
                 ],
@@ -334,7 +334,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_comitanigiacomo_kanso-sync-engine_internal_core_domain.HabitEntry"
+                            "$ref": "#/definitions/domain.HabitEntry"
                         }
                     },
                     "400": {
@@ -432,7 +432,7 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_comitanigiacomo_kanso-sync-engine_internal_core_domain.Habit"
+                                "$ref": "#/definitions/domain.Habit"
                             }
                         }
                     },
@@ -471,7 +471,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_handler_http.createHabitRequest"
+                            "$ref": "#/definitions/http.createHabitRequest"
                         }
                     }
                 ],
@@ -479,7 +479,7 @@
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/github_com_comitanigiacomo_kanso-sync-engine_internal_core_domain.Habit"
+                            "$ref": "#/definitions/domain.Habit"
                         }
                     },
                     "400": {
@@ -587,7 +587,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_handler_http.updateHabitRequest"
+                            "$ref": "#/definitions/http.updateHabitRequest"
                         }
                     }
                 ],
@@ -747,7 +747,7 @@
         }
     },
     "definitions": {
-        "github_com_comitanigiacomo_kanso-sync-engine_internal_core_domain.Habit": {
+        "domain.Habit": {
             "type": "object",
             "properties": {
                 "archived_at": {
@@ -824,7 +824,7 @@
                 }
             }
         },
-        "github_com_comitanigiacomo_kanso-sync-engine_internal_core_domain.HabitEntry": {
+        "domain.HabitEntry": {
             "type": "object",
             "properties": {
                 "completion_date": {
@@ -859,7 +859,7 @@
                 }
             }
         },
-        "internal_adapters_handler_http.createEntryRequest": {
+        "http.createEntryRequest": {
             "type": "object",
             "required": [
                 "completion_date",
@@ -880,7 +880,7 @@
                 }
             }
         },
-        "internal_adapters_handler_http.createHabitRequest": {
+        "http.createHabitRequest": {
             "type": "object",
             "required": [
                 "title"
@@ -924,7 +924,7 @@
                 }
             }
         },
-        "internal_adapters_handler_http.loginRequest": {
+        "http.loginRequest": {
             "type": "object",
             "required": [
                 "email",
@@ -939,7 +939,7 @@
                 }
             }
         },
-        "internal_adapters_handler_http.loginResponse": {
+        "http.loginResponse": {
             "type": "object",
             "properties": {
                 "token": {
@@ -958,7 +958,7 @@
                 }
             }
         },
-        "internal_adapters_handler_http.registerRequest": {
+        "http.registerRequest": {
             "type": "object",
             "required": [
                 "email",
@@ -974,7 +974,7 @@
                 }
             }
         },
-        "internal_adapters_handler_http.updateEntryRequest": {
+        "http.updateEntryRequest": {
             "type": "object",
             "required": [
                 "version"
@@ -991,8 +991,11 @@
                 }
             }
         },
-        "internal_adapters_handler_http.updateHabitRequest": {
+        "http.updateHabitRequest": {
             "type": "object",
+            "required": [
+                "version"
+            ],
             "properties": {
                 "color": {
                     "type": "string"
@@ -1035,7 +1038,7 @@
                 }
             }
         },
-        "internal_adapters_handler_http.userResponse": {
+        "http.userResponse": {
             "type": "object",
             "properties": {
                 "email": {

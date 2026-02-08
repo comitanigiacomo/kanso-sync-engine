@@ -1,6 +1,6 @@
 basePath: /api/v1
 definitions:
-  github_com_comitanigiacomo_kanso-sync-engine_internal_core_domain.Habit:
+  domain.Habit:
     properties:
       archived_at:
         type: string
@@ -51,7 +51,7 @@ definitions:
           type: integer
         type: array
     type: object
-  github_com_comitanigiacomo_kanso-sync-engine_internal_core_domain.HabitEntry:
+  domain.HabitEntry:
     properties:
       completion_date:
         type: string
@@ -74,7 +74,7 @@ definitions:
       version:
         type: integer
     type: object
-  internal_adapters_handler_http.createEntryRequest:
+  http.createEntryRequest:
     properties:
       completion_date:
         type: string
@@ -88,7 +88,7 @@ definitions:
     - completion_date
     - habit_id
     type: object
-  internal_adapters_handler_http.createHabitRequest:
+  http.createHabitRequest:
     properties:
       color:
         type: string
@@ -117,7 +117,7 @@ definitions:
     required:
     - title
     type: object
-  internal_adapters_handler_http.loginRequest:
+  http.loginRequest:
     properties:
       email:
         type: string
@@ -127,7 +127,7 @@ definitions:
     - email
     - password
     type: object
-  internal_adapters_handler_http.loginResponse:
+  http.loginResponse:
     properties:
       token:
         type: string
@@ -139,7 +139,7 @@ definitions:
             type: string
         type: object
     type: object
-  internal_adapters_handler_http.registerRequest:
+  http.registerRequest:
     properties:
       email:
         type: string
@@ -150,7 +150,7 @@ definitions:
     - email
     - password
     type: object
-  internal_adapters_handler_http.updateEntryRequest:
+  http.updateEntryRequest:
     properties:
       notes:
         type: string
@@ -161,7 +161,7 @@ definitions:
     required:
     - version
     type: object
-  internal_adapters_handler_http.updateHabitRequest:
+  http.updateHabitRequest:
     properties:
       color:
         type: string
@@ -189,8 +189,10 @@ definitions:
         items:
           type: integer
         type: array
+    required:
+    - version
     type: object
-  internal_adapters_handler_http.userResponse:
+  http.userResponse:
     properties:
       email:
         type: string
@@ -222,14 +224,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_adapters_handler_http.loginRequest'
+          $ref: '#/definitions/http.loginRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_adapters_handler_http.loginResponse'
+            $ref: '#/definitions/http.loginResponse'
         "400":
           description: Invalid Input
           schema:
@@ -262,14 +264,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_adapters_handler_http.registerRequest'
+          $ref: '#/definitions/http.registerRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/internal_adapters_handler_http.userResponse'
+            $ref: '#/definitions/http.userResponse'
         "400":
           description: Invalid Input / Password too short
           schema:
@@ -315,7 +317,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_comitanigiacomo_kanso-sync-engine_internal_core_domain.HabitEntry'
+              $ref: '#/definitions/domain.HabitEntry'
             type: array
         "400":
           description: Missing habit_id
@@ -339,14 +341,14 @@ paths:
         name: entry
         required: true
         schema:
-          $ref: '#/definitions/internal_adapters_handler_http.createEntryRequest'
+          $ref: '#/definitions/http.createEntryRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/github_com_comitanigiacomo_kanso-sync-engine_internal_core_domain.HabitEntry'
+            $ref: '#/definitions/domain.HabitEntry'
         "400":
           description: Invalid Input
           schema:
@@ -409,14 +411,14 @@ paths:
         name: entry
         required: true
         schema:
-          $ref: '#/definitions/internal_adapters_handler_http.updateEntryRequest'
+          $ref: '#/definitions/http.updateEntryRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_comitanigiacomo_kanso-sync-engine_internal_core_domain.HabitEntry'
+            $ref: '#/definitions/domain.HabitEntry'
         "400":
           description: Invalid Input
           schema:
@@ -442,9 +444,9 @@ paths:
       - Entries
   /entries/sync:
     get:
-      description: Get entries created or modified since the last sync timestamp
+      description: Get entries created or modified since the last sync cursor.
       parameters:
-      - description: Timestamp (RFC3339)
+      - description: Last Sync Cursor (RFC3339)
         in: query
         name: since
         type: string
@@ -452,7 +454,7 @@ paths:
       - application/json
       responses:
         "200":
-          description: 'Returns {changes: [], timestamp: ...}'
+          description: 'Returns {changes: [], timestamp: NextCursor}'
           schema:
             additionalProperties: true
             type: object
@@ -477,7 +479,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_comitanigiacomo_kanso-sync-engine_internal_core_domain.Habit'
+              $ref: '#/definitions/domain.Habit'
             type: array
         "500":
           description: Internal Server Error
@@ -501,14 +503,14 @@ paths:
         name: habit
         required: true
         schema:
-          $ref: '#/definitions/internal_adapters_handler_http.createHabitRequest'
+          $ref: '#/definitions/http.createHabitRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/github_com_comitanigiacomo_kanso-sync-engine_internal_core_domain.Habit'
+            $ref: '#/definitions/domain.Habit'
         "400":
           description: Validation Error (Title empty, Invalid Color)
           schema:
@@ -570,7 +572,7 @@ paths:
         name: habit
         required: true
         schema:
-          $ref: '#/definitions/internal_adapters_handler_http.updateHabitRequest'
+          $ref: '#/definitions/http.updateHabitRequest'
       produces:
       - application/json
       responses:

@@ -141,12 +141,12 @@ func (h *HabitHandler) List(c *gin.Context) {
 
 // Sync godoc
 // @Summary      Sync habits (Offline-First)
-// @Description  Get habits created, updated, or deleted since the provided timestamp
+// @Description  Get habits created, updated, or deleted since the provided timestamp cursor.
 // @Tags         Habits
 // @Produce      json
 // @Security     BearerAuth
-// @Param        last_sync query string false "Timestamp (RFC3339 format)"
-// @Success      200  {object}  map[string]interface{} "Returns {changes: delta, timestamp: now}"
+// @Param        last_sync query string false "Timestamp Cursor (RFC3339 format)"
+// @Success      200  {object}  map[string]interface{} "Returns {changes: delta, timestamp: NextCursor}"
 // @Failure      400  {object}  map[string]string "Invalid Timestamp Format"
 // @Failure      500  {object}  map[string]string "Internal Server Error"
 // @Router       /habits/sync [get]
@@ -175,9 +175,11 @@ func (h *HabitHandler) Sync(c *gin.Context) {
 		return
 	}
 
+	nextCursor := calculateNextHabitCursor(deltas, lastSync)
+
 	c.JSON(http.StatusOK, gin.H{
 		"changes":   deltas,
-		"timestamp": time.Now().UTC(),
+		"timestamp": nextCursor,
 	})
 }
 
@@ -282,4 +284,11 @@ func (h *HabitHandler) Delete(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+func calculateNextHabitCursor(changes []*domain.Habit, fallback time.Time) time.Time {
+	if len(changes) == 0 {
+		return fallback
+	}
+	return changes[len(changes)-1].UpdatedAt
 }

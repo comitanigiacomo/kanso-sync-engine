@@ -75,6 +75,8 @@ func (s *EntryService) Update(ctx context.Context, input UpdateEntryInput) (*dom
 
 	existing.Value = input.Value
 	existing.Notes = input.Notes
+
+	existing.Version++
 	existing.UpdatedAt = time.Now().UTC()
 
 	if err := s.repo.Update(ctx, existing); err != nil {
