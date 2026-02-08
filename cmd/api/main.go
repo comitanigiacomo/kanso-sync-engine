@@ -84,27 +84,30 @@ func main() {
 		log.Fatalf("Invalid JWT duration: %v", err)
 	}
 
-	habitRepo := repository.NewPostgresHabitRepository(db)
+	habitRepoPostgres := repository.NewPostgresHabitRepository(db)
 	entryRepo := repository.NewPostgresEntryRepository(db)
 	userRepo := repository.NewPostgresUserRepository(db.DB)
 
-	streakWorker := workers.NewStreakWorker(habitRepo, entryRepo)
+	habitRepoCached := repository.NewCachedHabitRepository(habitRepoPostgres, rdb)
+
+	streakWorker := workers.NewStreakWorker(habitRepoCached, entryRepo)
 
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	defer workerCancel()
 	streakWorker.Start(workerCtx)
 
 	tokenService := services.NewTokenService(jwtSecret, jwtIssuer, tokenDuration)
-	habitService := services.NewHabitService(habitRepo, rdb)
-	authService := services.NewAuthService(userRepo, tokenService)
-	entryService := services.NewEntryService(entryRepo, habitRepo, streakWorker)
 
-	statsService := services.NewStatsService(habitRepo, entryRepo)
+	habitService := services.NewHabitService(habitRepoCached)
+
+	authService := services.NewAuthService(userRepo, tokenService)
+
+	entryService := services.NewEntryService(entryRepo, habitRepoCached, streakWorker)
+	statsService := services.NewStatsService(habitRepoCached, entryRepo)
 
 	habitHandler := adapterHTTP.NewHabitHandler(habitService)
 	entryHandler := adapterHTTP.NewEntryHandler(entryService)
 	authHandler := adapterHTTP.NewAuthHandler(authService)
-
 	statsHandler := adapterHTTP.NewStatsHandler(statsService)
 
 	router := adapterHTTP.NewRouter(adapterHTTP.RouterDependencies{
