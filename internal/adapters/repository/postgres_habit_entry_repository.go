@@ -102,18 +102,16 @@ func (r *PostgresEntryRepository) ListByHabitIDWithRange(ctx context.Context, ha
 }
 
 func (r *PostgresEntryRepository) Update(ctx context.Context, entry *domain.HabitEntry) error {
-	entry.Version++
-	entry.UpdatedAt = time.Now().UTC()
 
 	query := `
         UPDATE habit_entries 
         SET value = :value,
             notes = :notes,
             completion_date = :completion_date,
-            version = :version,
+            version = :version,        -- Salva la versione NUOVA (calcolata dal service)
             updated_at = :updated_at
         WHERE id = :id 
-          AND version = :version - 1  -- Optimistic Lock check
+          AND version = :version - 1  -- Verifica che sul DB ci sia la versione VECCHIA
           AND deleted_at IS NULL`
 
 	result, err := r.db.NamedExecContext(ctx, query, entry)

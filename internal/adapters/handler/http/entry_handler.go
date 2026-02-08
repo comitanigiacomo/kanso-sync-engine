@@ -212,12 +212,12 @@ func (h *EntryHandler) ListByHabit(c *gin.Context) {
 
 // Sync godoc
 // @Summary      Sync entries (Offline-First)
-// @Description  Get entries created or modified since the last sync timestamp
+// @Description  Get entries created or modified since the last sync cursor.
 // @Tags         Entries
 // @Produce      json
 // @Security     BearerAuth
-// @Param        since query string false "Timestamp (RFC3339)"
-// @Success      200  {object}  map[string]interface{} "Returns {changes: [], timestamp: ...}"
+// @Param        since query string false "Last Sync Cursor (RFC3339)"
+// @Success      200  {object}  map[string]interface{} "Returns {changes: [], timestamp: NextCursor}"
 // @Failure      400  {object}  map[string]string "Invalid Date Format"
 // @Router       /entries/sync [get]
 func (h *EntryHandler) Sync(c *gin.Context) {
@@ -234,7 +234,7 @@ func (h *EntryHandler) Sync(c *gin.Context) {
 		var err error
 		since, err = time.Parse(time.RFC3339, sinceStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date format (use RFC3339)"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date format"})
 			return
 		}
 	}
@@ -245,9 +245,11 @@ func (h *EntryHandler) Sync(c *gin.Context) {
 		return
 	}
 
+	nextCursor := calculateNextCursor(changes, since)
+
 	c.JSON(http.StatusOK, gin.H{
 		"changes":   changes,
-		"timestamp": time.Now().UTC(),
+		"timestamp": nextCursor,
 	})
 }
 
@@ -269,4 +271,14 @@ func handleError(c *gin.Context, err error) {
 		log.Printf("[ERROR] Request %s %s failed: %v", c.Request.Method, c.Request.URL.Path, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 	}
+}
+
+func calculateNextCursor(changes []*domain.HabitEntry, fallback time.Time) time.Time {
+	if len(changes) == 0 {
+		return fallback
+	}
+
+	lastChange := changes[len(changes)-1].UpdatedAt
+
+	return lastChange
 }
