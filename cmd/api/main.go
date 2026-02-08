@@ -93,15 +93,11 @@ func main() {
 	streakWorker := workers.NewStreakWorker(habitRepoCached, entryRepo)
 
 	workerCtx, workerCancel := context.WithCancel(context.Background())
-	defer workerCancel()
 	streakWorker.Start(workerCtx)
 
 	tokenService := services.NewTokenService(jwtSecret, jwtIssuer, tokenDuration)
-
 	habitService := services.NewHabitService(habitRepoCached)
-
 	authService := services.NewAuthService(userRepo, tokenService)
-
 	entryService := services.NewEntryService(entryRepo, habitRepoCached, streakWorker)
 	statsService := services.NewStatsService(habitRepoCached, entryRepo)
 
@@ -140,16 +136,21 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Println("Shutting down server...")
+	log.Println("Shutdown signal received. Starting graceful shutdown...")
 
-	workerCancel()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Fatal("Server forced to shutdown:", err)
 	}
+	log.Println("HTTP Server stopped.")
+
+	log.Println("Stopping workers...")
+	workerCancel()
+	streakWorker.Stop()
+	log.Println("Workers stopped.")
+
 	log.Println("Server exited properly.")
 }
 

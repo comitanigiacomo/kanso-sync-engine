@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/domain"
@@ -27,6 +28,7 @@ type StreakWorker struct {
 	habitRepo HabitRepository
 	entryRepo EntryRepository
 	jobs      chan StreakJob
+	wg        sync.WaitGroup
 }
 
 func NewStreakWorker(hRepo HabitRepository, eRepo EntryRepository) *StreakWorker {
@@ -38,18 +40,25 @@ func NewStreakWorker(hRepo HabitRepository, eRepo EntryRepository) *StreakWorker
 }
 
 func (w *StreakWorker) Start(ctx context.Context) {
+	w.wg.Add(1)
 	go func() {
+		defer w.wg.Done()
 		log.Println("Streak Worker started in background...")
 		for {
 			select {
 			case job := <-w.jobs:
 				w.processJob(ctx, job)
 			case <-ctx.Done():
-				log.Println("Streak Worker shutting down...")
+				log.Println("Streak Worker stopping...")
 				return
 			}
 		}
 	}()
+}
+
+func (w *StreakWorker) Stop() {
+	w.wg.Wait()
+	log.Println("Streak Worker stopped gracefully.")
 }
 
 func (w *StreakWorker) Enqueue(habitID string) {
