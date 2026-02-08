@@ -45,6 +45,68 @@ func setupTestDB(t *testing.T) *sqlx.DB {
 	if err != nil {
 		t.Skipf("Skipping integration tests: database connection failed: %v", err)
 	}
+
+	_, err = db.Exec("DROP TABLE IF EXISTS habit_entries, habits, users CASCADE")
+	require.NoError(t, err)
+
+	schema := `
+    CREATE TABLE users (
+        id TEXT PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL
+    );
+
+    CREATE TABLE habits (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        description TEXT,
+        color TEXT,
+        icon TEXT,
+        type TEXT NOT NULL,
+        reminder_time TEXT,
+        unit TEXT,
+        target_value INTEGER,
+        
+        -- CONSTRAINT CRITICO PER I TEST
+        interval INTEGER CHECK (interval > 0),
+        
+        weekdays TEXT, -- JSON
+        frequency_type TEXT,
+        
+        start_date TIMESTAMP WITH TIME ZONE,
+        end_date TIMESTAMP WITH TIME ZONE,
+        archived_at TIMESTAMP WITH TIME ZONE,
+
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        deleted_at TIMESTAMP WITH TIME ZONE,
+        version INTEGER DEFAULT 1,
+        sort_order INTEGER DEFAULT 0,
+        
+        -- CONSTRAINTS CRITICI PER I TEST
+        current_streak INTEGER DEFAULT 0 CHECK (current_streak >= 0),
+        longest_streak INTEGER DEFAULT 0 CHECK (longest_streak >= 0)
+    );
+
+    CREATE TABLE habit_entries (
+        id TEXT PRIMARY KEY,
+        habit_id TEXT NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL,
+        value INTEGER NOT NULL,
+        notes TEXT,
+        completion_date TIMESTAMP WITH TIME ZONE NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        deleted_at TIMESTAMP WITH TIME ZONE,
+        version INTEGER DEFAULT 1
+    );
+    `
+	_, err = db.Exec(schema)
+	require.NoError(t, err, "Failed to initialize database schema")
+
 	return db
 }
 
@@ -122,6 +184,8 @@ func TestPostgresHabitRepository_Integration(t *testing.T) {
 		newHabit.CurrentStreak = 5
 		newHabit.LongestStreak = 10
 
+		newHabit.Version++
+
 		time.Sleep(100 * time.Millisecond)
 
 		err := repo.Update(ctx, newHabit)
@@ -175,7 +239,7 @@ func TestPostgresHabitRepository_Integration(t *testing.T) {
 
 	t.Run("Update/Delete Non-Existent ID", func(t *testing.T) {
 		randomID := uuid.New().String()
-		dummyHabit := &domain.Habit{ID: randomID, UserID: userID, Title: "Ghost", Weekdays: []int{1}, Version: 1}
+		dummyHabit := &domain.Habit{ID: randomID, UserID: userID, Title: "Ghost", Weekdays: []int{1}, Version: 2}
 
 		err := repo.Update(ctx, dummyHabit)
 		assert.Error(t, err)
@@ -215,10 +279,12 @@ func TestPostgresHabitRepository_Integration(t *testing.T) {
 		require.NoError(t, err)
 
 		deviceBCopy.Title = "B wins"
+		deviceBCopy.Version++
 		err = repo.Update(ctx, deviceBCopy)
 		require.NoError(t, err)
 
 		deviceACopy.Title = "A loses"
+		deviceACopy.Version++
 		err = repo.Update(ctx, deviceACopy)
 
 		assert.Error(t, err)
@@ -246,6 +312,7 @@ func TestPostgresHabitRepository_Integration(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 
 		h1.Title = "H1 Changed"
+		h1.Version++
 		repo.Update(ctx, h1)
 
 		repo.Delete(ctx, h2.ID)

@@ -73,8 +73,11 @@ func setupTestDB(t *testing.T) *sqlx.DB {
 	db, err := sqlx.Connect("pgx", dsn)
 	require.NoError(t, err, "Failed to connect to test database")
 
+	_, err = db.Exec("DROP TABLE IF EXISTS habit_entries, habits, users CASCADE")
+	require.NoError(t, err, "Failed to drop tables")
+
 	schema := `
-    CREATE TABLE IF NOT EXISTS users (
+    CREATE TABLE users (
         id TEXT PRIMARY KEY,
         email TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
@@ -82,7 +85,7 @@ func setupTestDB(t *testing.T) *sqlx.DB {
         updated_at TIMESTAMP WITH TIME ZONE NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS habits (
+    CREATE TABLE habits (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         title TEXT NOT NULL,
@@ -94,18 +97,23 @@ func setupTestDB(t *testing.T) *sqlx.DB {
         unit TEXT,
         target_value INTEGER,
         interval INTEGER,
-        weekdays INTEGER[],
+        weekdays TEXT, -- JSON TEXT
         frequency_type TEXT,
+        
+        start_date TIMESTAMP WITH TIME ZONE,
+        end_date TIMESTAMP WITH TIME ZONE,
+        archived_at TIMESTAMP WITH TIME ZONE,
+
         created_at TIMESTAMP WITH TIME ZONE NOT NULL,
         updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
         deleted_at TIMESTAMP WITH TIME ZONE,
         version INTEGER DEFAULT 1,
         sort_order INTEGER DEFAULT 0,
-        current_streak INTEGER DEFAULT 0,  -- Aggiunta colonna per E2E
-        longest_streak INTEGER DEFAULT 0   -- Aggiunta colonna per E2E
+        current_streak INTEGER DEFAULT 0,
+        longest_streak INTEGER DEFAULT 0
     );
 
-    CREATE TABLE IF NOT EXISTS habit_entries (
+    CREATE TABLE habit_entries (
         id TEXT PRIMARY KEY,
         habit_id TEXT NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
         user_id TEXT NOT NULL,
@@ -144,6 +152,13 @@ func setupTestRedis(t *testing.T) *redis.Client {
 		DB:       1,
 	})
 
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		t.Fatalf("Failed to connect to Redis during setup: %v", err)
+	}
+
 	return rdb
 }
 
@@ -161,11 +176,13 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 
 	rdb.FlushDB(context.Background())
 
-	habitRepo := repository.NewPostgresHabitRepository(db)
+	habitRepoPostgres := repository.NewPostgresHabitRepository(db)
+	habitRepoCached := repository.NewCachedHabitRepository(habitRepoPostgres, rdb)
+
 	entryRepo := repository.NewPostgresEntryRepository(db)
 	userRepo := repository.NewPostgresUserRepository(db.DB)
 
-	streakWorker := workers.NewStreakWorker(habitRepo, entryRepo)
+	streakWorker := workers.NewStreakWorker(habitRepoCached, entryRepo)
 
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	defer workerCancel()
@@ -173,10 +190,8 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 
 	tokenService := services.NewTokenService("test-secret-e2e", "kanso-e2e", 24*time.Hour)
 
-	habitSvc := services.NewHabitService(habitRepo, rdb)
-
-	entrySvc := services.NewEntryService(entryRepo, habitRepo, streakWorker)
-
+	habitSvc := services.NewHabitService(habitRepoCached)
+	entrySvc := services.NewEntryService(entryRepo, habitRepoCached, streakWorker)
 	authSvc := services.NewAuthService(userRepo, tokenService)
 
 	habitHandler := adapterHTTP.NewHabitHandler(habitSvc)
@@ -366,6 +381,8 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusNoContent, w.Code)
+
+		time.Sleep(1 * time.Second)
 	})
 
 	t.Run("9. Verify Entry Deletion", func(t *testing.T) {
@@ -381,11 +398,18 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 	})
 
 	t.Run("10. Delete Habit (Full Cleanup)", func(t *testing.T) {
+		rdb.FlushDB(context.Background())
+
 		req, _ := http.NewRequest("DELETE", "/api/v1/habits/"+habitID, nil)
 		req.Header.Set("Authorization", "Bearer "+authToken)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusNoContent {
+			t.Logf("Step 10 Failed. Body: %s", w.Body.String())
+		}
+
 		assert.Equal(t, http.StatusNoContent, w.Code)
 	})
 }

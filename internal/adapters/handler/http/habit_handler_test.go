@@ -16,7 +16,6 @@ import (
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/adapters/handler/http/middleware"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/domain"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/services"
-	"github.com/redis/go-redis/v9"
 )
 
 type MockRepo struct {
@@ -60,17 +59,10 @@ func (m *MockRepo) ListByUserID(ctx context.Context, userID string) ([]*domain.H
 }
 
 func (m *MockRepo) Update(ctx context.Context, h *domain.Habit) error {
-	existing, ok := m.store[h.ID]
+	_, ok := m.store[h.ID]
 	if !ok {
 		return domain.ErrHabitNotFound
 	}
-
-	if h.Version != existing.Version {
-		return domain.ErrHabitConflict
-	}
-
-	h.Version++
-	h.UpdatedAt = time.Now().UTC()
 
 	clone := *h
 	m.store[h.ID] = &clone
@@ -116,11 +108,7 @@ func setupRouter() (*gin.Engine, *MockRepo) {
 
 	repo := NewMockRepo()
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
-	})
-
-	svc := services.NewHabitService(repo, rdb)
+	svc := services.NewHabitService(repo)
 	handler := adapterHTTP.NewHabitHandler(svc)
 
 	r := gin.New()
@@ -325,7 +313,6 @@ func TestDeleteHabit(t *testing.T) {
 		assert.Equal(t, http.StatusNoContent, w.Code)
 
 		deletedH, err := repo.GetByID(context.Background(), h.ID)
-
 		assert.ErrorIs(t, err, domain.ErrHabitNotFound)
 		assert.Nil(t, deletedH)
 	})

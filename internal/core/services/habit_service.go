@@ -2,34 +2,19 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/domain"
-	"github.com/redis/go-redis/v9"
 )
 
 type HabitService struct {
-	repo  domain.HabitRepository
-	redis *redis.Client
+	repo domain.HabitRepository
 }
 
-func NewHabitService(repo domain.HabitRepository, rdb *redis.Client) *HabitService {
+func NewHabitService(repo domain.HabitRepository) *HabitService {
 	return &HabitService{
-		repo:  repo,
-		redis: rdb,
-	}
-}
-
-func (s *HabitService) cacheKey(userID string) string {
-	return fmt.Sprintf("habits:%s", userID)
-}
-
-func (s *HabitService) invalidateCache(ctx context.Context, userID string) {
-	if err := s.redis.Del(ctx, s.cacheKey(userID)).Err(); err != nil {
-		log.Printf("Failed to invalidate cache for user %s: %v", userID, err)
+		repo: repo,
 	}
 }
 
@@ -105,37 +90,17 @@ func (s *HabitService) Create(ctx context.Context, input CreateHabitInput) (*dom
 		habit.FrequencyType = domain.HabitFreqDaily
 	}
 
+	habit.Version = 1
+
 	if err := s.repo.Create(ctx, habit); err != nil {
 		return nil, err
 	}
-
-	s.invalidateCache(ctx, input.UserID)
 
 	return habit, nil
 }
 
 func (s *HabitService) ListByUserID(ctx context.Context, userID string) ([]*domain.Habit, error) {
-	key := s.cacheKey(userID)
-
-	val, err := s.redis.Get(ctx, key).Result()
-	if err == nil {
-		var habits []*domain.Habit
-		if err := json.Unmarshal([]byte(val), &habits); err == nil {
-			return habits, nil
-		}
-		log.Printf("Cache corrupted for user %s", userID)
-	}
-
-	habits, err := s.repo.ListByUserID(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	if data, err := json.Marshal(habits); err == nil {
-		s.redis.Set(ctx, key, data, 30*time.Minute)
-	}
-
-	return habits, nil
+	return s.repo.ListByUserID(ctx, userID)
 }
 
 func (s *HabitService) GetDelta(ctx context.Context, userID string, lastSync time.Time) ([]*domain.Habit, error) {
@@ -221,11 +186,12 @@ func (s *HabitService) Update(ctx context.Context, input UpdateHabitInput) error
 		habit.FrequencyType = *input.FrequencyType
 	}
 
+	habit.Version++
+	habit.UpdatedAt = time.Now().UTC()
+
 	if err := s.repo.Update(ctx, habit); err != nil {
 		return err
 	}
-
-	s.invalidateCache(ctx, input.UserID)
 
 	return nil
 }
@@ -240,11 +206,14 @@ func (s *HabitService) Delete(ctx context.Context, id string, userID string) err
 		return domain.ErrHabitNotFound
 	}
 
-	if err := s.repo.Delete(ctx, id); err != nil {
+	now := time.Now().UTC()
+	habit.DeletedAt = &now
+	habit.Version++
+	habit.UpdatedAt = now
+
+	if err := s.repo.Update(ctx, habit); err != nil {
 		return err
 	}
-
-	s.invalidateCache(ctx, userID)
 
 	return nil
 }
