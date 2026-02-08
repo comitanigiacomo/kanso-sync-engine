@@ -21,7 +21,7 @@ func NewStatsService(habitRepo domain.HabitRepository, entryRepo domain.HabitEnt
 
 func (s *StatsService) GetWeeklyStats(ctx context.Context, input domain.StatsInput) (*domain.WeeklyStats, error) {
 	startDate := input.StartDate.Truncate(24 * time.Hour)
-	endDate := input.EndDate.Truncate(24 * time.Hour)
+	endDate := input.EndDate.Truncate(24 * time.Hour).Add(24 * time.Hour).Add(-1 * time.Nanosecond)
 
 	habits, err := s.habitRepo.ListByUserID(ctx, input.UserID)
 	if err != nil {

@@ -33,14 +33,15 @@ func TestStatsService_GetWeeklyStats(t *testing.T) {
 		}
 		habitRepo.On("ListByUserID", ctx, userID).Return(habits, nil)
 
+		expectedEndDate := endDate.Truncate(24 * time.Hour).Add(24 * time.Hour).Add(-1 * time.Nanosecond)
+
 		entries := []domain.HabitEntry{
 			{ID: "e1", HabitID: "h1", UserID: userID, Value: 2500, CompletionDate: startDate},
 			{ID: "e2", HabitID: "h1", UserID: userID, Value: 500, CompletionDate: endDate},
-
 			{ID: "e3", HabitID: "h2", UserID: userID, Value: 5, CompletionDate: endDate},
 		}
 
-		entryRepo.On("ListByUserIDAndDateRange", ctx, userID, startDate, endDate).Return(entries, nil)
+		entryRepo.On("ListByUserIDAndDateRange", ctx, userID, startDate, expectedEndDate).Return(entries, nil)
 
 		input := domain.StatsInput{
 			UserID:    userID,
@@ -63,6 +64,7 @@ func TestStatsService_GetWeeklyStats(t *testing.T) {
 		assert.InDelta(t, 33.33, h1.CompletionRate, 0.1)
 
 		assert.Len(t, h1.DailyProgress, 3)
+
 		assert.Equal(t, []int{2500, 0, 500}, h1.DailyProgress)
 
 		h2 := findHabitStat(stats.HabitStats, "h2")
