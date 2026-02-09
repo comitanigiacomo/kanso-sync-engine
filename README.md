@@ -15,17 +15,22 @@ It implements a comprehensive synchronization system designed to handle data syn
 
 The system is built using **Hexagonal Architecture** to maintain separation of concerns between business logic and technical infrastructure (database, API layer), improving code maintainability and testability.
 
-### 1. Offline-First Synchronization (Delta-Sync)
-The synchronization mechanism uses delta-sync to optimize data transfer. Clients submit a timestamp cursor to request only records modified since the last synchronization. The server returns only new or updated records. Deletions are implemented as soft deletes to maintain consistency across devices.
+### Core Features
 
-### 2. Conflict Resolution (Optimistic Locking)
-Concurrent modifications from multiple devices are resolved using versioning. Each record maintains a version number; update requests include the current version. Version mismatches trigger rejection, requiring clients to refresh before retrying.
 
-### 3. Timezone Management
-All data is stored in UTC. Timezone conversions are applied before local calculations. Daylight saving time transitions are handled automatically.
+- **Offline-First Synchronization (Delta-Sync)**: The synchronization mechanism uses delta-sync to optimize data transfer. Clients submit a timestamp cursor to request only records modified since the last synchronization. The server returns only new or updated records. Deletions are implemented as soft deletes to maintain consistency.
 
-### 4. Performance and Reliability
-Graceful shutdown drains connections safely. Computationally intensive operations are processed asynchronously. Redis-based rate limiting mitigates abuse.
+- **Conflict Resolution (Optimistic Locking)**: Concurrent modifications are resolved using versioning. Each record maintains a version number; update requests include the current version. Version mismatches trigger rejection (409 Conflict), requiring clients to pull the latest state before retrying.
+
+- **Timezone Awareness**: All data is stored in UTC. Statistical aggregations accept the user's IANA Timezone (e.g., Europe/Rome) via headers to correctly calculate daily progress based on local time, solving the "Midnight Bug".
+
+- **Reliability & Performance**
+
+    - *Graceful Shutdown*: Workers drain active jobs using sync.WaitGroup before the application exits.
+
+    - *Async Processing*: Heavy computations (like streak calculations) are offloaded to background workers.
+
+    - *Rate Limiting*: Redis-based token bucket algorithm to prevent abuse.
 
 ---
 
@@ -41,6 +46,32 @@ Graceful shutdown drains connections safely. Computationally intensive operation
 | **Containerization** | Docker & Docker Compose |
 | **CI/CD** | GitHub Actions |
 
+---
+
+## Project Structure
+
+The codebase reflects the Hexagonal separation:
+
+```text
+kanso-sync-engine/
+├── .github/            
+├── cmd/api/            
+├── db/                 
+├── docs/               
+├── internal/
+│   ├── core/          
+│   │   ├── domain/   
+│   │   ├── services/   
+│   │   └── workers/    
+│   └── adapters/       
+│       ├── cache/      
+│       ├── handler/    
+│       ├── repository/ 
+│       └── storage/    
+├── pkg/
+├── docker-compose.yml
+└── ...
+```
 ---
 
 ## Getting Started
@@ -72,3 +103,6 @@ go test -v -race ./...
 
 Complete API specification available at `http://localhost:8080/swagger/index.html`
 
+## Acknowledgments
+
+*AI tools were used to assist with testing and code generation to speed up development.*
