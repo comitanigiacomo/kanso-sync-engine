@@ -30,7 +30,6 @@ type RouterDependencies struct {
 func NewRouter(deps RouterDependencies) *gin.Engine {
 	router := gin.Default()
 
-	// Global Middleware
 	router.Use(func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
@@ -50,7 +49,6 @@ func NewRouter(deps RouterDependencies) *gin.Engine {
 	// Accessible on: http://localhost:8080/swagger/index.html
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
-	// System Health Check
 	router.GET("/health", func(c *gin.Context) {
 		dbStatus := "connected"
 		if err := deps.DB.Ping(); err != nil {
@@ -75,15 +73,14 @@ func NewRouter(deps RouterDependencies) *gin.Engine {
 		})
 	})
 
-	// API Versioning
 	apiV1 := router.Group("/api/v1")
 
-	// Public Routes
-	deps.AuthHandler.RegisterRoutes(apiV1)
+	authMiddleware := middleware.AuthMiddleware(deps.TokenService)
 
-	// Protected Routes (Require JWT)
+	deps.AuthHandler.RegisterRoutes(apiV1, authMiddleware)
+
 	protected := apiV1.Group("")
-	protected.Use(middleware.AuthMiddleware(deps.TokenService))
+	protected.Use(authMiddleware)
 	{
 		deps.HabitHandler.RegisterRoutes(protected)
 		deps.EntryHandler.RegisterRoutes(protected)

@@ -112,3 +112,45 @@ func (r *PostgresUserRepository) GetByID(ctx context.Context, id string) (*domai
 
 	return &user, nil
 }
+
+func (r *PostgresUserRepository) Delete(ctx context.Context, id string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("repository: begin transaction failed: %w", err)
+	}
+
+	defer tx.Rollback()
+
+	_, err = tx.ExecContext(ctx, "DELETE FROM habit_entries WHERE user_id = $1", id)
+	if err != nil {
+		return fmt.Errorf("repository: delete habit_entries failed: %w", err)
+	}
+
+	_, err = tx.ExecContext(ctx, "DELETE FROM habits WHERE user_id = $1", id)
+	if err != nil {
+		return fmt.Errorf("repository: delete habits failed: %w", err)
+	}
+
+	res, err := tx.ExecContext(ctx, "DELETE FROM users WHERE id = $1", id)
+	if err != nil {
+		return fmt.Errorf("repository: delete user failed: %w", err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("repository: check rows affected failed: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return domain.ErrUserNotFound
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("repository: commit transaction failed: %w", err)
+	}
+
+	return nil
+}

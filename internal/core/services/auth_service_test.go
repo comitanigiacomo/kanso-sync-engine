@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -33,6 +34,11 @@ func (m *MockUserRepository) GetByID(ctx context.Context, id string) (*domain.Us
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*domain.User), args.Error(1)
+}
+
+func (m *MockUserRepository) Delete(ctx context.Context, id string) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
 }
 
 func TestAuthService_Register(t *testing.T) {
@@ -183,5 +189,45 @@ func TestAuthService_Login(t *testing.T) {
 
 		assert.ErrorIs(t, err, domain.ErrUserNotFound)
 		assert.Nil(t, output)
+	})
+}
+
+func TestAuthService_DeleteAccount(t *testing.T) {
+	t.Parallel()
+
+	setup := func() (*AuthService, *MockUserRepository) {
+		mockRepo := new(MockUserRepository)
+		tokenService := NewTokenService("test-secret", "test-issuer", 1*time.Hour)
+		return NewAuthService(mockRepo, tokenService), mockRepo
+	}
+
+	t.Run("Success: Should delete account successfully", func(t *testing.T) {
+		t.Parallel()
+		service, mockRepo := setup()
+		ctx := context.Background()
+		userID := "user-to-delete-123"
+
+		mockRepo.On("Delete", ctx, userID).Return(nil)
+
+		err := service.DeleteAccount(ctx, userID)
+
+		assert.NoError(t, err)
+		mockRepo.AssertExpectations(t)
+	})
+
+	t.Run("Fail: Should propagate repository error", func(t *testing.T) {
+		t.Parallel()
+		service, mockRepo := setup()
+		ctx := context.Background()
+		userID := "user-error-123"
+
+		expectedErr := errors.New("database connection failed")
+		mockRepo.On("Delete", ctx, userID).Return(expectedErr)
+
+		err := service.DeleteAccount(ctx, userID)
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), expectedErr.Error())
+		mockRepo.AssertExpectations(t)
 	})
 }

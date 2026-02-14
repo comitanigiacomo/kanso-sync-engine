@@ -73,3 +73,10 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginOutput
 		User:  user,
 	}, nil
 }
+
+func (s *AuthService) DeleteAccount(ctx context.Context, userID string) error {
+	if err := s.repo.Delete(ctx, userID); err != nil {
+		return fmt.Errorf("auth service: failed to delete account: %w", err)
+	}
+	return nil
+}
