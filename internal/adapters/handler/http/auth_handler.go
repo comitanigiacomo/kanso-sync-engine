@@ -138,6 +138,18 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	})
 }
 
+// Validate godoc
+// @Summary      Validate Session
+// @Description  Check if the current session/user is still valid
+// @Tags         Auth
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]string "Valid"
+// @Failure      401  {object}  map[string]string "Unauthorized"
+// @Router       /auth/validate [get]
+func (h *AuthHandler) Validate(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"status": "valid"})
+}
+
 // DeleteAccount godoc
 // @Summary      Delete User Account
 // @Description  Permanently deletes the user and all associated data (habits, entries)
@@ -170,6 +182,7 @@ func (h *AuthHandler) RegisterRoutes(router *gin.RouterGroup, authMiddleware gin
 		authGroup.POST("/register", h.Register)
 		authGroup.POST("/login", h.Login)
 
+		authGroup.GET("/validate", authMiddleware, h.Validate)
 		authGroup.DELETE("/user", authMiddleware, h.DeleteAccount)
 	}
 }
