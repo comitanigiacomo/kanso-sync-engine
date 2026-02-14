@@ -200,11 +200,13 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 
 	router := gin.Default()
 
+	authMiddleware := middleware.AuthMiddleware(tokenService)
+
 	api := router.Group("/api/v1")
-	authHandler.RegisterRoutes(api)
+	authHandler.RegisterRoutes(api, authMiddleware)
 
 	protected := api.Group("")
-	protected.Use(middleware.AuthMiddleware(tokenService))
+	protected.Use(authMiddleware)
 	{
 		habitHandler.RegisterRoutes(protected)
 		entryHandler.RegisterRoutes(protected)
@@ -411,5 +413,26 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 		}
 
 		assert.Equal(t, http.StatusNoContent, w.Code)
+	})
+
+	t.Run("11. Delete Account", func(t *testing.T) {
+		req, _ := http.NewRequest("DELETE", "/api/v1/auth/user", nil)
+		req.Header.Set("Authorization", "Bearer "+authToken)
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "account deleted")
+	})
+
+	t.Run("12. Verify Account Deletion", func(t *testing.T) {
+		payload := `{"email": "e2e@kanso.app", "password": "PasswordSicura123!"}`
+		req, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBufferString(payload))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	})
 }
