@@ -138,10 +138,38 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	})
 }
 
-func (h *AuthHandler) RegisterRoutes(router *gin.RouterGroup) {
+// DeleteAccount godoc
+// @Summary      Delete User Account
+// @Description  Permanently deletes the user and all associated data (habits, entries)
+// @Tags         Auth
+// @Security     BearerAuth
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  map[string]string "Account deleted"
+// @Failure      401  {object}  map[string]string "Unauthorized"
+// @Failure      500  {object}  map[string]string "Internal Server Error"
+// @Router       /auth/user [delete]
+func (h *AuthHandler) DeleteAccount(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	if err := h.service.DeleteAccount(c.Request.Context(), userID.(string)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "account deleted successfully"})
+}
+
+func (h *AuthHandler) RegisterRoutes(router *gin.RouterGroup, authMiddleware gin.HandlerFunc) {
 	authGroup := router.Group("/auth")
 	{
 		authGroup.POST("/register", h.Register)
 		authGroup.POST("/login", h.Login)
+
+		authGroup.DELETE("/user", authMiddleware, h.DeleteAccount)
 	}
 }

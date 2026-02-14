@@ -42,7 +42,12 @@ func (m *MockUserRepository) GetByID(ctx context.Context, id string) (*domain.Us
 	return args.Get(0).(*domain.User), args.Error(1)
 }
 
-func setupHandler() (*gin.Engine, *MockUserRepository) {
+func (m *MockUserRepository) Delete(ctx context.Context, id string) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
+func setupHandler(middleware gin.HandlerFunc) (*gin.Engine, *MockUserRepository) {
 	gin.SetMode(gin.TestMode)
 
 	mockRepo := new(MockUserRepository)
@@ -53,14 +58,21 @@ func setupHandler() (*gin.Engine, *MockUserRepository) {
 	authHandler := NewAuthHandler(authService)
 
 	router := gin.New()
-	authHandler.RegisterRoutes(router.Group(""))
+
+	if middleware == nil {
+		middleware = func(c *gin.Context) {
+			c.Next()
+		}
+	}
+
+	authHandler.RegisterRoutes(router.Group(""), middleware)
 
 	return router, mockRepo
 }
 
 func TestAuthHandler_Register(t *testing.T) {
 	t.Run("Success: Should return 201 and created user (No Password)", func(t *testing.T) {
-		router, mockRepo := setupHandler()
+		router, mockRepo := setupHandler(nil)
 
 		payload := map[string]string{
 			"email":    "api_test@kanso.app",
@@ -88,7 +100,7 @@ func TestAuthHandler_Register(t *testing.T) {
 	})
 
 	t.Run("Fail: Should return 400 for Bad JSON (Invalid Email)", func(t *testing.T) {
-		router, mockRepo := setupHandler()
+		router, mockRepo := setupHandler(nil)
 
 		payload := map[string]string{
 			"email":    "not-an-email",
@@ -105,7 +117,7 @@ func TestAuthHandler_Register(t *testing.T) {
 	})
 
 	t.Run("Fail: Should return 409 Conflict if email exists", func(t *testing.T) {
-		router, mockRepo := setupHandler()
+		router, mockRepo := setupHandler(nil)
 
 		payload := map[string]string{
 			"email":    "duplicate@kanso.app",
@@ -123,7 +135,7 @@ func TestAuthHandler_Register(t *testing.T) {
 	})
 
 	t.Run("Fail: Should return 500 Internal Server Error on DB failure", func(t *testing.T) {
-		router, mockRepo := setupHandler()
+		router, mockRepo := setupHandler(nil)
 
 		payload := map[string]string{
 			"email":    "crash@kanso.app",
@@ -146,7 +158,7 @@ func TestAuthHandler_Login(t *testing.T) {
 	_ = validUser.SetPassword("Password123!")
 
 	t.Run("Success: Should return 200 and Token", func(t *testing.T) {
-		router, mockRepo := setupHandler()
+		router, mockRepo := setupHandler(nil)
 
 		payload := map[string]string{
 			"email":    "login@kanso.app",
@@ -172,7 +184,7 @@ func TestAuthHandler_Login(t *testing.T) {
 	})
 
 	t.Run("Fail: Should return 401 on Wrong Password", func(t *testing.T) {
-		router, mockRepo := setupHandler()
+		router, mockRepo := setupHandler(nil)
 
 		payload := map[string]string{
 			"email":    "login@kanso.app",
@@ -191,7 +203,7 @@ func TestAuthHandler_Login(t *testing.T) {
 	})
 
 	t.Run("Fail: Should return 401 (not 404) if User Not Found (Security)", func(t *testing.T) {
-		router, mockRepo := setupHandler()
+		router, mockRepo := setupHandler(nil)
 
 		payload := map[string]string{
 			"email":    "ghost@kanso.app",
@@ -210,7 +222,7 @@ func TestAuthHandler_Login(t *testing.T) {
 	})
 
 	t.Run("Fail: Should return 400 for Bad JSON", func(t *testing.T) {
-		router, _ := setupHandler()
+		router, _ := setupHandler(nil)
 
 		payload := map[string]string{"email": "not-an-email"}
 		body, _ := json.Marshal(payload)
@@ -220,5 +232,56 @@ func TestAuthHandler_Login(t *testing.T) {
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+}
+
+func TestAuthHandler_DeleteAccount(t *testing.T) {
+
+	t.Run("Success: Should delete account if authenticated", func(t *testing.T) {
+		authMiddleware := func(c *gin.Context) {
+			c.Set("userID", "user-to-delete")
+			c.Next()
+		}
+
+		router, mockRepo := setupHandler(authMiddleware)
+
+		mockRepo.On("Delete", mock.Anything, "user-to-delete").Return(nil)
+
+		req, _ := http.NewRequest(http.MethodDelete, "/auth/user", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "account deleted")
+		mockRepo.AssertExpectations(t)
+	})
+
+	t.Run("Fail: Should return 401 if middleware does not set userID", func(t *testing.T) {
+		emptyMiddleware := func(c *gin.Context) { c.Next() }
+
+		router, _ := setupHandler(emptyMiddleware)
+
+		req, _ := http.NewRequest(http.MethodDelete, "/auth/user", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+	})
+
+	t.Run("Fail: Should return 500 if Service fails", func(t *testing.T) {
+		authMiddleware := func(c *gin.Context) {
+			c.Set("userID", "user-error")
+			c.Next()
+		}
+
+		router, mockRepo := setupHandler(authMiddleware)
+
+		mockRepo.On("Delete", mock.Anything, "user-error").Return(errors.New("delete failed"))
+
+		req, _ := http.NewRequest(http.MethodDelete, "/auth/user", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
 }
