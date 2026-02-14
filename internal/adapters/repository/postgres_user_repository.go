@@ -122,7 +122,9 @@ func (r *PostgresUserRepository) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("repository: begin transaction failed: %w", err)
 	}
 
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	_, err = tx.ExecContext(ctx, "DELETE FROM habit_entries WHERE user_id = $1", id)
 	if err != nil {
