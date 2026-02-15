@@ -287,8 +287,9 @@ func TestHabit_Lifecycle(t *testing.T) {
 
 		assert.NotNil(t, habit.ArchivedAt)
 
-		err := habit.Update("Fail", "", "", "", domain.HabitTypeBoolean, "", "", 1, 1, nil)
-		assert.Equal(t, domain.ErrHabitArchived, err)
+		err := habit.Update("Updated While Archived", "", "", "", domain.HabitTypeBoolean, "", "", 1, 1, nil)
+		assert.Nil(t, err, "Should allow updating archived habits")
+		assert.Equal(t, "Updated While Archived", habit.Title)
 
 		habit.Restore()
 		assert.Nil(t, habit.ArchivedAt)
