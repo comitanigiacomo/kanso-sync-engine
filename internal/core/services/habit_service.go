@@ -47,6 +47,7 @@ type UpdateHabitInput struct {
 	Interval      *int
 	Weekdays      []int
 	FrequencyType *string
+	ArchivedAt    *string
 	Version       int
 }
 
@@ -184,6 +185,18 @@ func (s *HabitService) Update(ctx context.Context, input UpdateHabitInput) error
 
 	if input.FrequencyType != nil {
 		habit.FrequencyType = *input.FrequencyType
+	}
+
+	if input.ArchivedAt != nil {
+		dateStr := *input.ArchivedAt
+		if dateStr == "" {
+			habit.ArchivedAt = nil
+		} else {
+			t, err := time.Parse(time.RFC3339, dateStr)
+			if err == nil {
+				habit.ArchivedAt = &t
+			}
+		}
 	}
 
 	habit.Version++

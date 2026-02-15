@@ -225,9 +225,6 @@ func NewHabit(title, userID string) (*Habit, error) {
 }
 
 func (h *Habit) Update(title, description, color, icon, hType, reminder, unit string, target, interval int, weekdays []int) error {
-	if h.ArchivedAt != nil {
-		return ErrHabitArchived
-	}
 
 	data, err := prepareHabitData(title, description, color, hType, reminder, unit, target, interval, weekdays)
 	if err != nil {

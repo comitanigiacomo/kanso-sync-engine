@@ -47,6 +47,7 @@ type updateHabitRequest struct {
 	Interval      *int    `json:"interval"`
 	Weekdays      []int   `json:"weekdays"`
 	FrequencyType *string `json:"frequency_type"`
+	ArchivedAt    *string `json:"archived_at"`
 	Version       int     `json:"version" binding:"required"`
 }
 
@@ -227,6 +228,7 @@ func (h *HabitHandler) Update(c *gin.Context) {
 		Interval:      req.Interval,
 		Weekdays:      req.Weekdays,
 		FrequencyType: req.FrequencyType,
+		ArchivedAt:    req.ArchivedAt,
 		Version:       req.Version,
 	}
 
@@ -248,7 +250,10 @@ func (h *HabitHandler) Update(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "internal server error",
+		})
 		return
 	}
 
