@@ -179,8 +179,8 @@ func setupEntryRouter() (*gin.Engine, *MockEntryRepo, *MockHabitRepoForEntry) {
 func TestCreateEntry(t *testing.T) {
 	t.Run("Success: 201 Created", func(t *testing.T) {
 		router, _, habitRepo := setupEntryRouter()
-		h, _ := domain.NewHabit("Gym", "user-1")
-		h.ID = "habit-1"
+
+		h, _ := domain.NewHabit("habit-1", "Gym", "user-1")
 		habitRepo.Create(context.Background(), h)
 
 		body := map[string]interface{}{
@@ -204,8 +204,8 @@ func TestCreateEntry(t *testing.T) {
 
 	t.Run("Fail: 403 Forbidden (IDOR)", func(t *testing.T) {
 		router, _, habitRepo := setupEntryRouter()
-		h, _ := domain.NewHabit("Secret", "user-2")
-		h.ID = "habit-secret"
+
+		h, _ := domain.NewHabit("habit-secret", "Secret", "user-2")
 		habitRepo.Create(context.Background(), h)
 
 		body := map[string]interface{}{
@@ -227,8 +227,8 @@ func TestCreateEntry(t *testing.T) {
 func TestUpdateEntry(t *testing.T) {
 	t.Run("Success: 200 OK", func(t *testing.T) {
 		router, entryRepo, habitRepo := setupEntryRouter()
-		h, _ := domain.NewHabit("Read", "user-1")
-		h.ID = "habit-read"
+
+		h, _ := domain.NewHabit("habit-read", "Read", "user-1")
 		habitRepo.Create(context.Background(), h)
 
 		e := domain.NewHabitEntry(h.ID, "user-1", time.Now(), 5)
@@ -250,8 +250,8 @@ func TestUpdateEntry(t *testing.T) {
 
 	t.Run("Fail: 409 Conflict", func(t *testing.T) {
 		router, entryRepo, habitRepo := setupEntryRouter()
-		h, _ := domain.NewHabit("Read", "user-1")
-		h.ID = "habit-read"
+
+		h, _ := domain.NewHabit("habit-read", "Read", "user-1")
 		habitRepo.Create(context.Background(), h)
 
 		e := domain.NewHabitEntry(h.ID, "user-1", time.Now(), 5)
@@ -274,8 +274,8 @@ func TestUpdateEntry(t *testing.T) {
 func TestDeleteEntry(t *testing.T) {
 	t.Run("Success: 204 No Content", func(t *testing.T) {
 		router, entryRepo, habitRepo := setupEntryRouter()
-		h, _ := domain.NewHabit("Run", "user-1")
-		h.ID = "habit-run"
+
+		h, _ := domain.NewHabit("habit-run", "Run", "user-1")
 		habitRepo.Create(context.Background(), h)
 
 		e := domain.NewHabitEntry(h.ID, "user-1", time.Now(), 1)
@@ -291,8 +291,8 @@ func TestDeleteEntry(t *testing.T) {
 
 	t.Run("Fail: 403 Forbidden (Delete other user's entry)", func(t *testing.T) {
 		router, entryRepo, habitRepo := setupEntryRouter()
-		h, _ := domain.NewHabit("Run", "user-2")
-		h.ID = "habit-other"
+
+		h, _ := domain.NewHabit("habit-other", "Run", "user-2")
 		habitRepo.Create(context.Background(), h)
 
 		e := domain.NewHabitEntry(h.ID, "user-2", time.Now(), 1)
@@ -320,8 +320,7 @@ func TestListEntries(t *testing.T) {
 	t.Run("Success: List entries for habit", func(t *testing.T) {
 		router, entryRepo, habitRepo := setupEntryRouter()
 
-		h, _ := domain.NewHabit("Yoga", "user-1")
-		h.ID = "habit-yoga"
+		h, _ := domain.NewHabit("habit-yoga", "Yoga", "user-1")
 		habitRepo.Create(context.Background(), h)
 
 		e1 := domain.NewHabitEntry(h.ID, "user-1", time.Now(), 1)

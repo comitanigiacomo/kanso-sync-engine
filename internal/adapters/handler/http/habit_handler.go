@@ -22,6 +22,7 @@ func NewHabitHandler(svc *services.HabitService) *HabitHandler {
 }
 
 type createHabitRequest struct {
+	ID            string `json:"id"`
 	Title         string `json:"title" binding:"required"`
 	Description   string `json:"description"`
 	Color         string `json:"color"`
@@ -88,6 +89,7 @@ func (h *HabitHandler) Create(c *gin.Context) {
 	}
 
 	input := services.CreateHabitInput{
+		ID:            req.ID,
 		UserID:        userID,
 		Title:         req.Title,
 		Description:   req.Description,

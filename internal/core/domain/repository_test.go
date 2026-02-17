@@ -103,7 +103,7 @@ func TestHabitRepository_Contract_60k(t *testing.T) {
 	repo := NewInMemoryHabitRepository()
 	ctx := context.Background()
 
-	habit, _ := domain.NewHabit("Drink Water", "user-123")
+	habit, _ := domain.NewHabit("", "Drink Water", "user-123")
 	habit.FrequencyType = "daily"
 	habit.Interval = 1
 	habit.TargetValue = 1
@@ -139,14 +139,14 @@ func TestHabitRepository_Contract_60k(t *testing.T) {
 	t.Run("Delta Sync (GetChanges)", func(t *testing.T) {
 		deltaRepo := NewInMemoryHabitRepository()
 
-		h1, _ := domain.NewHabit("Old Habit", "user-sync")
+		h1, _ := domain.NewHabit("", "Old Habit", "user-sync")
 		deltaRepo.Create(ctx, h1)
 
 		time.Sleep(10 * time.Millisecond)
 		lastSync := time.Now().UTC()
 		time.Sleep(10 * time.Millisecond)
 
-		h2, _ := domain.NewHabit("New Habit", "user-sync")
+		h2, _ := domain.NewHabit("", "New Habit", "user-sync")
 		deltaRepo.Create(ctx, h2)
 
 		h1_update, _ := deltaRepo.GetByID(ctx, h1.ID)

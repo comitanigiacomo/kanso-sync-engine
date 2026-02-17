@@ -195,7 +195,7 @@ func (h *Habit) applyChanges(data *habitData, iconInput string) {
 	}
 }
 
-func NewHabit(title, userID string) (*Habit, error) {
+func NewHabit(id string, title, userID string) (*Habit, error) {
 	if userID == "" {
 		return nil, ErrHabitInvalidUserID
 	}
@@ -207,8 +207,13 @@ func NewHabit(title, userID string) (*Habit, error) {
 
 	now := time.Now().UTC()
 
+	finalID := id
+	if finalID == "" {
+		finalID = uuid.New().String()
+	}
+
 	h := &Habit{
-		ID:            uuid.New().String(),
+		ID:            finalID,
 		UserID:        userID,
 		SortOrder:     0,
 		CurrentStreak: 0,

@@ -19,6 +19,7 @@ func NewHabitService(repo domain.HabitRepository) *HabitService {
 }
 
 type CreateHabitInput struct {
+	ID            string
 	UserID        string
 	Title         string
 	Description   string
@@ -52,7 +53,7 @@ type UpdateHabitInput struct {
 }
 
 func (s *HabitService) Create(ctx context.Context, input CreateHabitInput) (*domain.Habit, error) {
-	habit, err := domain.NewHabit(input.Title, input.UserID)
+	habit, err := domain.NewHabit(input.ID, input.Title, input.UserID)
 	if err != nil {
 		return nil, err
 	}
