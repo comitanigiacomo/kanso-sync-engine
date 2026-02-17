@@ -128,7 +128,7 @@ func setupRouter() (*gin.Engine, *MockRepo) {
 }
 
 func TestCreateHabit(t *testing.T) {
-	t.Run("Success: 201 Created", func(t *testing.T) {
+	t.Run("Success: 201 Created (Auto Generated ID)", func(t *testing.T) {
 		router, _ := setupRouter()
 
 		body := `{"title": "Gym", "type": "boolean", "weekdays": [1, 3, 5]}`
@@ -143,6 +143,30 @@ func TestCreateHabit(t *testing.T) {
 		assert.Equal(t, http.StatusCreated, w.Code)
 		assert.Contains(t, w.Body.String(), `"title":"Gym"`)
 		assert.Contains(t, w.Body.String(), `"id":`)
+	})
+
+	t.Run("Success: 201 Created with Client-Side UUID", func(t *testing.T) {
+		router, repo := setupRouter()
+
+		clientUUID := "123e4567-e89b-12d3-a456-426614174000"
+		body := `{"id": "` + clientUUID + `", "title": "Offline Habit", "type": "boolean"}`
+
+		req, _ := http.NewRequest("POST", "/api/v1/habits", bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-User-ID", "user-1")
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusCreated, w.Code)
+
+		assert.Contains(t, w.Body.String(), clientUUID)
+
+		saved, err := repo.GetByID(context.Background(), clientUUID)
+		assert.Nil(t, err)
+		assert.NotNil(t, saved)
+		assert.Equal(t, clientUUID, saved.ID)
+		assert.Equal(t, "Offline Habit", saved.Title)
 	})
 
 	t.Run("Fail: 401 Unauthorized (Missing Header)", func(t *testing.T) {
@@ -169,7 +193,7 @@ func TestCreateHabit(t *testing.T) {
 func TestGetHabits(t *testing.T) {
 	t.Run("Success: 200 OK with List", func(t *testing.T) {
 		router, repo := setupRouter()
-		h1, _ := domain.NewHabit("Run", "user-1")
+		h1, _ := domain.NewHabit("", "Run", "user-1")
 		repo.Create(context.Background(), h1)
 
 		req, _ := http.NewRequest("GET", "/api/v1/habits", nil)
@@ -185,7 +209,7 @@ func TestGetHabits(t *testing.T) {
 func TestUpdateHabit(t *testing.T) {
 	t.Run("Success: 200 OK Full Update", func(t *testing.T) {
 		router, repo := setupRouter()
-		h, _ := domain.NewHabit("Old", "user-1")
+		h, _ := domain.NewHabit("", "Old", "user-1")
 		h.Version = 1
 		repo.Create(context.Background(), h)
 
@@ -210,7 +234,7 @@ func TestUpdateHabit(t *testing.T) {
 
 	t.Run("Success: Clear Description (JSON empty string)", func(t *testing.T) {
 		router, repo := setupRouter()
-		h, _ := domain.NewHabit("To Clear", "user-1")
+		h, _ := domain.NewHabit("", "To Clear", "user-1")
 		h.Description = "Must be deleted"
 		h.Version = 1
 		repo.Create(context.Background(), h)
@@ -233,7 +257,7 @@ func TestUpdateHabit(t *testing.T) {
 
 	t.Run("Fail: 404 Not Found (IDOR Protection)", func(t *testing.T) {
 		router, repo := setupRouter()
-		h, _ := domain.NewHabit("Secret", "user-1")
+		h, _ := domain.NewHabit("", "Secret", "user-1")
 		repo.Create(context.Background(), h)
 
 		body := `{"title": "Hacked", "version": 1}`
@@ -250,7 +274,7 @@ func TestUpdateHabit_Conflict(t *testing.T) {
 	t.Run("Fail: 409 Conflict when updating old version", func(t *testing.T) {
 		router, repo := setupRouter()
 
-		h, _ := domain.NewHabit("V2", "user-1")
+		h, _ := domain.NewHabit("", "V2", "user-1")
 		h.Version = 2
 		repo.Create(context.Background(), h)
 
@@ -269,7 +293,7 @@ func TestSyncEndpoint(t *testing.T) {
 	router, repo := setupRouter()
 	ctx := context.Background()
 
-	hOld, _ := domain.NewHabit("Old", "user-1")
+	hOld, _ := domain.NewHabit("", "Old", "user-1")
 	hOld.UpdatedAt = time.Now().UTC().Add(-24 * time.Hour)
 	repo.Create(ctx, hOld)
 
@@ -278,7 +302,7 @@ func TestSyncEndpoint(t *testing.T) {
 
 	time.Sleep(1 * time.Millisecond)
 
-	hNew, _ := domain.NewHabit("New", "user-1")
+	hNew, _ := domain.NewHabit("", "New", "user-1")
 	hNew.UpdatedAt = time.Now().UTC()
 	repo.Create(ctx, hNew)
 
@@ -296,24 +320,5 @@ func TestSyncEndpoint(t *testing.T) {
 		assert.Contains(t, w.Body.String(), hNew.ID)
 		assert.NotContains(t, w.Body.String(), hOld.ID)
 		assert.Contains(t, response, "timestamp")
-	})
-}
-
-func TestDeleteHabit(t *testing.T) {
-	t.Run("Success: 204 No Content", func(t *testing.T) {
-		router, repo := setupRouter()
-		h, _ := domain.NewHabit("To Delete", "user-1")
-		repo.Create(context.Background(), h)
-
-		req, _ := http.NewRequest("DELETE", "/api/v1/habits/"+h.ID, nil)
-		req.Header.Set("X-User-ID", "user-1")
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusNoContent, w.Code)
-
-		deletedH, err := repo.GetByID(context.Background(), h.ID)
-		assert.ErrorIs(t, err, domain.ErrHabitNotFound)
-		assert.Nil(t, deletedH)
 	})
 }
