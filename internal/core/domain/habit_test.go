@@ -10,14 +10,15 @@ import (
 )
 
 func TestNewHabit(t *testing.T) {
-	t.Run("Success: Creates valid habit with defaults AND Sync fields", func(t *testing.T) {
-		h, err := domain.NewHabit("Drink Water", "u1")
+	t.Run("Success: Creates valid habit with Auto-Generated ID", func(t *testing.T) {
+		h, err := domain.NewHabit("", "Drink Water", "u1")
 
 		assert.Nil(t, err)
 		assert.NotNil(t, h)
 		assert.Equal(t, "Drink Water", h.Title)
 		assert.Equal(t, "u1", h.UserID)
 		assert.NotEmpty(t, h.ID)
+		assert.Len(t, h.ID, 36)
 
 		assert.Equal(t, domain.HabitTypeBoolean, h.Type)
 		assert.Equal(t, 1, h.TargetValue)
@@ -26,19 +27,29 @@ func TestNewHabit(t *testing.T) {
 		assert.Equal(t, 0, h.CurrentStreak)
 		assert.Equal(t, 0, h.LongestStreak)
 
-		assert.Equal(t, 1, h.Version, "New habits MUST start at Version 1 for Optimistic Locking")
+		assert.Equal(t, 1, h.Version, "New habits MUST start at Version 1")
 		assert.Nil(t, h.DeletedAt, "New habits MUST NOT be marked as deleted")
 
 		assert.WithinDuration(t, time.Now().UTC(), h.CreatedAt, 2*time.Second)
 	})
 
+	t.Run("Success: Creates valid habit with PROVIDED ID (Offline Sync)", func(t *testing.T) {
+		inputID := "a1b2c3d4-e5f6-7890-1234-567890abcdef"
+		h, err := domain.NewHabit(inputID, "Offline Habit", "u1")
+
+		assert.Nil(t, err)
+		assert.NotNil(t, h)
+		assert.Equal(t, inputID, h.ID, "Must use the provided ID")
+		assert.Equal(t, "Offline Habit", h.Title)
+	})
+
 	t.Run("Error: Empty Title", func(t *testing.T) {
-		_, err := domain.NewHabit("", "u1")
+		_, err := domain.NewHabit("", "", "u1")
 		assert.Equal(t, domain.ErrHabitTitleEmpty, err)
 	})
 
 	t.Run("Error: Invalid UserID", func(t *testing.T) {
-		_, err := domain.NewHabit("Title", "")
+		_, err := domain.NewHabit("", "Title", "")
 		assert.Equal(t, domain.ErrHabitInvalidUserID, err)
 	})
 }
@@ -217,7 +228,7 @@ func TestHabit_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			habit, _ := domain.NewHabit("Base Title", "u1")
+			habit, _ := domain.NewHabit("", "Base Title", "u1")
 
 			err := habit.Update(
 				tt.title, tt.description, tt.color, "icon",
@@ -248,7 +259,7 @@ func TestHabit_Validation(t *testing.T) {
 
 func TestHabit_Lifecycle(t *testing.T) {
 	createStandardHabit := func() *domain.Habit {
-		h, _ := domain.NewHabit("Original Title", "u1")
+		h, _ := domain.NewHabit("", "Original Title", "u1")
 		_ = h.Update("Original Title", "Desc", "#000", "icon", domain.HabitTypeNumeric, "", "ml", 10, 1, nil)
 		time.Sleep(1 * time.Millisecond)
 		return h
@@ -301,7 +312,7 @@ func TestHabit_Lifecycle(t *testing.T) {
 
 func TestHabit_UpdateStreak(t *testing.T) {
 	t.Run("Success: Update Streak values and timestamp", func(t *testing.T) {
-		habit, _ := domain.NewHabit("Streak Test", "u1")
+		habit, _ := domain.NewHabit("", "Streak Test", "u1")
 		originalTime := habit.UpdatedAt
 		time.Sleep(1 * time.Millisecond)
 
@@ -314,7 +325,7 @@ func TestHabit_UpdateStreak(t *testing.T) {
 }
 
 func TestHabit_ChangePosition(t *testing.T) {
-	h, _ := domain.NewHabit("Sort Me", "u1")
+	h, _ := domain.NewHabit("", "Sort Me", "u1")
 	originalUpdate := h.UpdatedAt
 	time.Sleep(1 * time.Millisecond)
 
@@ -335,7 +346,7 @@ func TestHabit_ChangePosition(t *testing.T) {
 
 func TestHabit_DefensiveCopyAndHygiene(t *testing.T) {
 	t.Run("Safety: Update isolates Weekdays slice", func(t *testing.T) {
-		habit, _ := domain.NewHabit("Defensive", "u1")
+		habit, _ := domain.NewHabit("", "Defensive", "u1")
 
 		inputWeekdays := []int{1, 2}
 
@@ -347,7 +358,7 @@ func TestHabit_DefensiveCopyAndHygiene(t *testing.T) {
 	})
 
 	t.Run("Hygiene: Normalizes (sorts & dedups) Weekdays", func(t *testing.T) {
-		habit, _ := domain.NewHabit("Sort", "u1")
+		habit, _ := domain.NewHabit("", "Sort", "u1")
 		inputWeekdays := []int{5, 1, 1, 3}
 
 		_ = habit.Update("Sort", "", "", "", domain.HabitTypeBoolean, "", "", 1, 1, inputWeekdays)

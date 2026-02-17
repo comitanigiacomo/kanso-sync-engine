@@ -130,7 +130,7 @@ func (m *MockRepo) UpdateStreaks(ctx context.Context, id string, current, longes
 }
 
 func TestHabitService_Create(t *testing.T) {
-	t.Run("Success: Should create and persist a valid habit", func(t *testing.T) {
+	t.Run("Success: Should create and persist a valid habit (Auto-ID)", func(t *testing.T) {
 		repo := NewMockRepo()
 		svc := newTestService(repo)
 		ctx := context.Background()
@@ -147,10 +147,34 @@ func TestHabitService_Create(t *testing.T) {
 		assert.NotNil(t, created)
 		assert.Equal(t, "Read Book", created.Title)
 		assert.Equal(t, 1, created.Version)
+		assert.NotEmpty(t, created.ID)
 
 		stored, _ := repo.GetByID(ctx, created.ID)
 		assert.NotNil(t, stored)
 		assert.Equal(t, created.ID, stored.ID)
+	})
+
+	t.Run("Success: Should create habit with PROVIDED ID (Offline Sync)", func(t *testing.T) {
+		repo := NewMockRepo()
+		svc := newTestService(repo)
+		ctx := context.Background()
+
+		customID := "custom-uuid-123"
+		input := services.CreateHabitInput{
+			ID:     customID,
+			UserID: "user-1",
+			Title:  "Offline Habit",
+			Type:   domain.HabitTypeBoolean,
+		}
+
+		created, err := svc.Create(ctx, input)
+
+		assert.NoError(t, err)
+		assert.Equal(t, customID, created.ID)
+
+		stored, _ := repo.GetByID(ctx, customID)
+		assert.NotNil(t, stored)
+		assert.Equal(t, customID, stored.ID)
 	})
 
 	t.Run("Fail: Domain Validation Error (Blocked BEFORE DB)", func(t *testing.T) {
@@ -191,7 +215,7 @@ func TestHabitService_Update(t *testing.T) {
 		repo := NewMockRepo()
 		svc := newTestService(repo)
 
-		existing, _ := domain.NewHabit("Old Title", "user-1")
+		existing, _ := domain.NewHabit("", "Old Title", "user-1")
 		existing.Version = 1
 		repo.Create(context.Background(), existing)
 
@@ -221,7 +245,7 @@ func TestHabitService_Update(t *testing.T) {
 		repo := NewMockRepo()
 		svc := newTestService(repo)
 
-		existing, _ := domain.NewHabit("Title", "user-1")
+		existing, _ := domain.NewHabit("", "Title", "user-1")
 		existing.Description = "I should be deleted"
 		existing.Version = 1
 		repo.Create(context.Background(), existing)
@@ -244,7 +268,7 @@ func TestHabitService_Update(t *testing.T) {
 		repo := NewMockRepo()
 		svc := newTestService(repo)
 
-		existing, _ := domain.NewHabit("Secret Habit", "user-1")
+		existing, _ := domain.NewHabit("", "Secret Habit", "user-1")
 		repo.Create(context.Background(), existing)
 
 		updateInput := services.UpdateHabitInput{
@@ -280,7 +304,7 @@ func TestHabitService_Update(t *testing.T) {
 		repo := NewMockRepo()
 		svc := newTestService(repo)
 
-		existing, _ := domain.NewHabit("Valid", "u1")
+		existing, _ := domain.NewHabit("", "Valid", "u1")
 		existing.Version = 1
 		repo.Create(context.Background(), existing)
 
@@ -301,7 +325,7 @@ func TestHabitService_Update(t *testing.T) {
 		repo := NewMockRepo()
 		svc := newTestService(repo)
 
-		existing, _ := domain.NewHabit("Old Title", "u1")
+		existing, _ := domain.NewHabit("", "Old Title", "u1")
 		existing.Color = "#FF0000"
 		existing.Type = "timer"
 		existing.Version = 1
@@ -331,7 +355,7 @@ func TestHabitService_Delete(t *testing.T) {
 		repo := NewMockRepo()
 		svc := newTestService(repo)
 
-		h, _ := domain.NewHabit("To Delete", "user-1")
+		h, _ := domain.NewHabit("", "To Delete", "user-1")
 		repo.Create(context.Background(), h)
 
 		err := svc.Delete(context.Background(), h.ID, "user-1")
@@ -349,7 +373,7 @@ func TestHabitService_Delete(t *testing.T) {
 		repo := NewMockRepo()
 		svc := newTestService(repo)
 
-		h, _ := domain.NewHabit("Don't Touch", "user-1")
+		h, _ := domain.NewHabit("", "Don't Touch", "user-1")
 		repo.Create(context.Background(), h)
 
 		err := svc.Delete(context.Background(), h.ID, "user-2")
@@ -374,9 +398,9 @@ func TestHabitService_ListAndGet(t *testing.T) {
 	repo := NewMockRepo()
 	svc := newTestService(repo)
 
-	h1, _ := domain.NewHabit("H1", "user-1")
-	h2, _ := domain.NewHabit("H2", "user-1")
-	h3, _ := domain.NewHabit("H3", "user-2")
+	h1, _ := domain.NewHabit("", "H1", "user-1")
+	h2, _ := domain.NewHabit("", "H2", "user-1")
+	h3, _ := domain.NewHabit("", "H3", "user-2")
 
 	repo.Create(context.Background(), h1)
 	repo.Create(context.Background(), h2)
@@ -408,7 +432,7 @@ func TestHabitService_SyncLogic(t *testing.T) {
 		repo := NewMockRepo()
 		svc := newTestService(repo)
 
-		existing, _ := domain.NewHabit("V2 Habit", "user-1")
+		existing, _ := domain.NewHabit("", "V2 Habit", "user-1")
 		existing.Version = 2
 		repo.Create(context.Background(), existing)
 
@@ -429,14 +453,14 @@ func TestHabitService_SyncLogic(t *testing.T) {
 		svc := newTestService(repo)
 		ctx := context.Background()
 
-		h1, _ := domain.NewHabit("Old", "user-1")
+		h1, _ := domain.NewHabit("", "Old", "user-1")
 		h1.UpdatedAt = time.Now().Add(-1 * time.Hour)
 		repo.Create(ctx, h1)
 
 		lastSync := time.Now()
 		time.Sleep(1 * time.Millisecond)
 
-		h2, _ := domain.NewHabit("New", "user-1")
+		h2, _ := domain.NewHabit("", "New", "user-1")
 		h2.UpdatedAt = time.Now().Add(1 * time.Minute)
 		repo.Create(ctx, h2)
 
