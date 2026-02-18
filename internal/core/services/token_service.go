@@ -1,9 +1,11 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"time"
 
+	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/domain"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -11,13 +13,15 @@ type TokenService struct {
 	secretKey     []byte
 	issuer        string
 	tokenDuration time.Duration
+	userRepo      domain.UserRepository
 }
 
-func NewTokenService(secretKey string, issuer string, tokenDuration time.Duration) *TokenService {
+func NewTokenService(secretKey string, issuer string, tokenDuration time.Duration, userRepo domain.UserRepository) *TokenService {
 	return &TokenService{
 		secretKey:     []byte(secretKey),
 		issuer:        issuer,
 		tokenDuration: tokenDuration,
+		userRepo:      userRepo,
 	}
 }
 
@@ -59,6 +63,14 @@ func (s *TokenService) ValidateToken(tokenString string) (string, error) {
 		userID, ok := claims["sub"].(string)
 		if !ok {
 			return "", fmt.Errorf("invalid token subject")
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		_, err := s.userRepo.GetByID(ctx, userID)
+		if err != nil {
+			return "", fmt.Errorf("user no longer exists or db error: %w", err)
 		}
 
 		return userID, nil
