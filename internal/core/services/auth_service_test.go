@@ -46,7 +46,7 @@ func TestAuthService_Register(t *testing.T) {
 
 	setup := func() (*AuthService, *MockUserRepository) {
 		mockRepo := new(MockUserRepository)
-		tokenService := NewTokenService("test-secret", "test-issuer", 1*time.Hour)
+		tokenService := NewTokenService("test-secret", "test-issuer", 1*time.Hour, mockRepo)
 		return NewAuthService(mockRepo, tokenService), mockRepo
 	}
 
@@ -126,7 +126,7 @@ func TestAuthService_Login(t *testing.T) {
 
 	setup := func() (*AuthService, *MockUserRepository, *TokenService) {
 		mockRepo := new(MockUserRepository)
-		tokenService := NewTokenService("test-secret", "test-issuer", 1*time.Hour)
+		tokenService := NewTokenService("test-secret", "test-issuer", 1*time.Hour, mockRepo)
 		return NewAuthService(mockRepo, tokenService), mockRepo, tokenService
 	}
 
@@ -145,6 +145,7 @@ func TestAuthService_Login(t *testing.T) {
 		input := LoginInput{Email: "login@kanso.app", Password: "Password123!"}
 
 		mockRepo.On("GetByEmail", ctx, input.Email).Return(validUser, nil)
+		mockRepo.On("GetByID", mock.Anything, validUser.ID).Return(validUser, nil)
 
 		output, err := service.Login(ctx, input)
 
@@ -197,7 +198,7 @@ func TestAuthService_DeleteAccount(t *testing.T) {
 
 	setup := func() (*AuthService, *MockUserRepository) {
 		mockRepo := new(MockUserRepository)
-		tokenService := NewTokenService("test-secret", "test-issuer", 1*time.Hour)
+		tokenService := NewTokenService("test-secret", "test-issuer", 1*time.Hour, mockRepo)
 		return NewAuthService(mockRepo, tokenService), mockRepo
 	}
 

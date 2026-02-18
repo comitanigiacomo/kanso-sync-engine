@@ -1,15 +1,43 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/domain"
 	"github.com/comitanigiacomo/kanso-sync-engine/internal/core/services"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
+
+type MockUserRepo struct {
+	mock.Mock
+}
+
+func (m *MockUserRepo) Create(ctx context.Context, user *domain.User) error {
+	return m.Called(ctx, user).Error(0)
+}
+func (m *MockUserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
+	args := m.Called(ctx, email)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.User), args.Error(1)
+}
+func (m *MockUserRepo) GetByID(ctx context.Context, id string) (*domain.User, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.User), args.Error(1)
+}
+func (m *MockUserRepo) Delete(ctx context.Context, id string) error {
+	return m.Called(ctx, id).Error(0)
+}
 
 func TestAuthMiddleware(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -34,10 +62,13 @@ func TestAuthMiddleware(t *testing.T) {
 
 	t.Run("Success: Valid Token", func(t *testing.T) {
 		t.Parallel()
-		tokenService := services.NewTokenService(secret, issuer, 1*time.Hour)
+		mockRepo := new(MockUserRepo)
+		tokenService := services.NewTokenService(secret, issuer, 1*time.Hour, mockRepo)
 		router := setupRouter(tokenService)
 
 		userID := "user-123"
+		mockRepo.On("GetByID", mock.Anything, userID).Return(&domain.User{ID: userID}, nil)
+
 		validToken, _ := tokenService.GenerateToken(userID)
 
 		req := httptest.NewRequest(http.MethodGet, "/protected", nil)
@@ -52,7 +83,8 @@ func TestAuthMiddleware(t *testing.T) {
 
 	t.Run("Fail: Missing Authorization Header", func(t *testing.T) {
 		t.Parallel()
-		tokenService := services.NewTokenService(secret, issuer, 1*time.Hour)
+		mockRepo := new(MockUserRepo)
+		tokenService := services.NewTokenService(secret, issuer, 1*time.Hour, mockRepo)
 		router := setupRouter(tokenService)
 
 		req := httptest.NewRequest(http.MethodGet, "/protected", nil)
@@ -66,7 +98,8 @@ func TestAuthMiddleware(t *testing.T) {
 
 	t.Run("Fail: Invalid Header Format", func(t *testing.T) {
 		t.Parallel()
-		tokenService := services.NewTokenService(secret, issuer, 1*time.Hour)
+		mockRepo := new(MockUserRepo)
+		tokenService := services.NewTokenService(secret, issuer, 1*time.Hour, mockRepo)
 		router := setupRouter(tokenService)
 
 		formats := []string{
@@ -89,8 +122,9 @@ func TestAuthMiddleware(t *testing.T) {
 
 	t.Run("Fail: Token with Wrong Signature (Tampered)", func(t *testing.T) {
 		t.Parallel()
-		serviceMiddleware := services.NewTokenService(secret, issuer, 1*time.Hour)
-		serviceAttacker := services.NewTokenService("wrong-secret", issuer, 1*time.Hour)
+		mockRepo := new(MockUserRepo)
+		serviceMiddleware := services.NewTokenService(secret, issuer, 1*time.Hour, mockRepo)
+		serviceAttacker := services.NewTokenService("wrong-secret", issuer, 1*time.Hour, mockRepo)
 
 		router := setupRouter(serviceMiddleware)
 		badToken, _ := serviceAttacker.GenerateToken("attacker")
@@ -107,7 +141,8 @@ func TestAuthMiddleware(t *testing.T) {
 
 	t.Run("Fail: Expired Token", func(t *testing.T) {
 		t.Parallel()
-		expiredService := services.NewTokenService(secret, issuer, -1*time.Second)
+		mockRepo := new(MockUserRepo)
+		expiredService := services.NewTokenService(secret, issuer, -1*time.Second, mockRepo)
 
 		router := setupRouter(expiredService)
 
