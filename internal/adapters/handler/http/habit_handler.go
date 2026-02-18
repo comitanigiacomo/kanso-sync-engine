@@ -58,9 +58,42 @@ func (h *HabitHandler) RegisterRoutes(router *gin.RouterGroup) {
 		habits.POST("", h.Create)
 		habits.GET("", h.List)
 		habits.GET("/sync", h.Sync)
+		habits.GET("/:id", h.Get)
 		habits.PUT("/:id", h.Update)
 		habits.DELETE("/:id", h.Delete)
 	}
+}
+
+// Get godoc
+// @Summary      Get a single habit
+// @Description  Get habit details by ID
+// @Tags         Habits
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id   path string true "Habit ID"
+// @Success      200  {object}  domain.Habit
+// @Failure      404  {object}  map[string]string "Habit Not Found"
+// @Failure      500  {object}  map[string]string "Internal Server Error"
+// @Router       /habits/{id} [get]
+func (h *HabitHandler) Get(c *gin.Context) {
+	userID, ok := middleware.GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "user context missing"})
+		return
+	}
+
+	id := c.Param("id")
+	habit, err := h.svc.GetByID(c.Request.Context(), id, userID)
+	if err != nil {
+		if errors.Is(err, domain.ErrHabitNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "habit not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, habit)
 }
 
 // Create godoc
@@ -195,7 +228,7 @@ func (h *HabitHandler) Sync(c *gin.Context) {
 // @Security     BearerAuth
 // @Param        id    path string true "Habit ID"
 // @Param        habit body updateHabitRequest true "Update Data"
-// @Success      200  "OK"
+// @Success      200  {object}  domain.Habit
 // @Failure      400  {object}  map[string]string "Invalid Input"
 // @Failure      404  {object}  map[string]string "Habit Not Found"
 // @Failure      409  {object}  map[string]string "Version Conflict (Data modified elsewhere)"
@@ -234,7 +267,8 @@ func (h *HabitHandler) Update(c *gin.Context) {
 		Version:       req.Version,
 	}
 
-	err := h.svc.Update(c.Request.Context(), input)
+	habit, err := h.svc.Update(c.Request.Context(), input)
+
 	if err != nil {
 		if errors.Is(err, domain.ErrHabitConflict) {
 			c.JSON(http.StatusConflict, gin.H{
@@ -259,7 +293,7 @@ func (h *HabitHandler) Update(c *gin.Context) {
 		return
 	}
 
-	c.Status(http.StatusOK)
+	c.JSON(http.StatusOK, habit)
 }
 
 // Delete godoc
