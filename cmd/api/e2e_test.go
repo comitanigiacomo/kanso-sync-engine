@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
@@ -188,7 +187,7 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 	defer workerCancel()
 	streakWorker.Start(workerCtx)
 
-	tokenService := services.NewTokenService("test-secret-e2e", "kanso-e2e", 24*time.Hour)
+	tokenService := services.NewTokenService("test-secret-e2e", "kanso-e2e", 24*time.Hour, userRepo)
 
 	habitSvc := services.NewHabitService(habitRepoCached)
 	entrySvc := services.NewEntryService(entryRepo, habitRepoCached, streakWorker)
@@ -223,8 +222,6 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 	var habitID string
 	var entryID string
 	var authToken string
-
-	attackerID := uuid.NewString()
 
 	t.Run("0. Health Check", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/health", nil)
@@ -304,7 +301,7 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 	})
 
 	t.Run("3b. Validation Error (Bad JSON)", func(t *testing.T) {
-		fakeHabitID := uuid.NewString()
+		fakeHabitID := "fake-habit-id"
 		payload := fmt.Sprintf(`{"habit_id": "%s", "value": "non-numeric"}`, fakeHabitID)
 
 		req, _ := http.NewRequest("POST", "/api/v1/entries", bytes.NewBufferString(payload))
@@ -366,13 +363,29 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 	})
 
 	t.Run("7. Security: IDOR Check (Attacker)", func(t *testing.T) {
-		attackerToken, _ := tokenService.GenerateToken(attackerID)
+		attackerPayload := `{"email": "attacker@kanso.app", "password": "PasswordAttacker1!"}`
+		reqReg, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBufferString(attackerPayload))
+		reqReg.Header.Set("Content-Type", "application/json")
+		wReg := httptest.NewRecorder()
+		router.ServeHTTP(wReg, reqReg)
+		require.Equal(t, http.StatusCreated, wReg.Code)
+
+		reqLogin, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBufferString(attackerPayload))
+		reqLogin.Header.Set("Content-Type", "application/json")
+		wLogin := httptest.NewRecorder()
+		router.ServeHTTP(wLogin, reqLogin)
+		require.Equal(t, http.StatusOK, wLogin.Code)
+
+		var loginResp loginResponse
+		json.Unmarshal(wLogin.Body.Bytes(), &loginResp)
+		attackerToken := loginResp.Token
 
 		req, _ := http.NewRequest("DELETE", "/api/v1/entries/"+entryID, nil)
 		req.Header.Set("Authorization", "Bearer "+attackerToken)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
+
 		assert.Equal(t, http.StatusForbidden, w.Code)
 	})
 
