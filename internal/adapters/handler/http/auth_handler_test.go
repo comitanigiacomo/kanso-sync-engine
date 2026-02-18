@@ -52,7 +52,7 @@ func setupHandler(middleware gin.HandlerFunc) (*gin.Engine, *MockUserRepository)
 
 	mockRepo := new(MockUserRepository)
 
-	tokenService := services.NewTokenService("test-secret-key", "test-issuer", 1*time.Hour)
+	tokenService := services.NewTokenService("test-secret-key", "test-issuer", 1*time.Hour, mockRepo)
 
 	authService := services.NewAuthService(mockRepo, tokenService)
 	authHandler := NewAuthHandler(authService)

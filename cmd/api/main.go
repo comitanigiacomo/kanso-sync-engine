@@ -95,7 +95,8 @@ func main() {
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	streakWorker.Start(workerCtx)
 
-	tokenService := services.NewTokenService(jwtSecret, jwtIssuer, tokenDuration)
+	tokenService := services.NewTokenService(jwtSecret, jwtIssuer, tokenDuration, userRepo)
+
 	habitService := services.NewHabitService(habitRepoCached)
 	authService := services.NewAuthService(userRepo, tokenService)
 	entryService := services.NewEntryService(entryRepo, habitRepoCached, streakWorker)
