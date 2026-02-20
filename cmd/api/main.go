@@ -56,8 +56,9 @@ func main() {
 	jwtIssuer := getEnv("JWT_ISSUER", "kanso-api")
 	jwtExpStr := getEnv("JWT_EXPIRATION", "24h")
 
-	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable",
-		dbUser, dbPass, dbHost, dbPort, dbName)
+	sslMode := getEnv("DB_SSLMODE", "disable")
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
+		dbUser, dbPass, dbHost, dbPort, dbName, sslMode)
 
 	log.Println("Connecting to database...")
 	db, err := sqlx.Connect("pgx", dsn)
