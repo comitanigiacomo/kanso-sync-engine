@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"time"
 
@@ -20,6 +21,9 @@ func NewRedisClient(host, port, password string, dbIndex int) (*redis.Client, er
 		WriteTimeout: 30 * time.Second,
 		PoolSize:     10,
 		MinIdleConns: 5,
+		TLSConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		},
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
