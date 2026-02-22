@@ -43,7 +43,7 @@ jobs:
           --health-retries 5
 
       redis:
-        image: bitnami/redis:7
+        image: bitnami/redis:latest
         env:
           REDIS_PASSWORD: secret_redis_pass_local
         ports:
