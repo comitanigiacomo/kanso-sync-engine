@@ -413,7 +413,7 @@ func TestEndToEnd_FullSystemLifecycle(t *testing.T) {
 	})
 
 	t.Run("10. Delete Habit (Full Cleanup)", func(t *testing.T) {
-		rdb.FlushDB(context.Background())
+		//rdb.FlushDB(context.Background())
 
 		req, _ := http.NewRequest("DELETE", "/api/v1/habits/"+habitID, nil)
 		req.Header.Set("Authorization", "Bearer "+authToken)
