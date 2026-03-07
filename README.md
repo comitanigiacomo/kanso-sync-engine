@@ -11,6 +11,12 @@ It implements a comprehensive synchronization system designed to handle data syn
 
 ---
 
+## Live Instance & Infrastructure
+
+The project is deployed on my home server: https://kanso.jack-lab.dev
+
+---
+
 ## Architecture Overview
 
 The system is built using **Hexagonal Architecture** to maintain separation of concerns between business logic and technical infrastructure (database, API layer), improving code maintainability and testability.
@@ -83,7 +89,7 @@ Docker & Docker Compose; Go 1.22+ (optional, for local development).
 
 1. **Clone the repository**
     ```bash
-    git clone https://github.com/yourusername/kanso-backend.git
+    git clone https://github.com/comitanigiacomo/kanso-backend.git
     cd kanso-backend
     ```
 
